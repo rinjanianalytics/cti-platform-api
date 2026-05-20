@@ -27,7 +27,9 @@ scrape_configs:
           env: 'development'
     scrape_interval: 15s
     params:
-      api_key: ['cti-dev-key-2026']  # switch to prom-scraper-2026 after API restart
+      # Replace with a real API key (issued via API_KEYS env) before deploying.
+      # Scrape will return 401 until this is set.
+      api_key: ['REPLACE_ME_WITH_PROMETHEUS_API_KEY']
 
   # Traefik metrics (enable when gateway profile is active)
   # - job_name: 'traefik'

@@ -21,9 +21,6 @@ import { createHmac } from 'crypto';
 function parseApiKeys(): Map<string, { name: string; role: 'admin' | 'analyst' | 'developer' | 'auditor' | 'viewer' }> {
     const keys = new Map<string, { name: string; role: 'admin' | 'analyst' | 'developer' | 'auditor' | 'viewer' }>();
 
-    // Always include dev key for backwards compatibility
-    keys.set('cti-dev-key-2026', { name: 'Development Key', role: 'admin' });
-
     const envKeys = process.env.API_KEYS;
     if (envKeys) {
         envKeys.split(',').forEach((entry, index) => {
@@ -337,19 +334,8 @@ authRouter.post('/login', async (c) => {
                 // Password wrong — fall through to 401
             }
         } catch (err) {
-            // DB unavailable — fall through to legacy check
             console.error('[Auth] DB login lookup failed:', (err as Error).message);
-        }
-
-        // ── 3. Legacy hardcoded admin (bootstrap fallback) ────────────────
-        if (body.username === 'admin' && body.password === 'admin') {
-            const token = createJWT({
-                sub: 'user:admin',
-                name: 'Administrator',
-                role: 'admin',
-                exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60),
-            });
-            return c.json({ success: true, token, user: { name: 'Administrator', role: 'admin' }, expiresIn: '24h' });
+            return c.json({ success: false, error: 'Authentication service unavailable' }, 503);
         }
     }
 

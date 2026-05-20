@@ -301,18 +301,18 @@ builder.queryType({
                 tactic: t.arg.string(),
             },
             resolve: async (_root, args) => {
-                let query = `SELECT * FROM techniques WHERE 1=1`;
+                const limit = args.limit ?? 50;
+                const platformPattern = args.platform ? `%${args.platform}%` : null;
+                const tacticPattern = args.tactic ? `%${args.tactic}%` : null;
 
-                if (args.platform) {
-                    query += ` AND platforms::text ILIKE '%${args.platform}%'`;
-                }
-                if (args.tactic) {
-                    query += ` AND tactic_ids::text ILIKE '%${args.tactic}%'`;
-                }
-
-                query += ` ORDER BY mitre_id LIMIT ${args.limit ?? 50}`;
-
-                const result = await db.execute(sql.raw(query));
+                // Parameter-bound filters: NULL pattern disables the predicate.
+                const result = await db.execute(
+                    sql`SELECT * FROM techniques
+                        WHERE (${platformPattern}::text IS NULL OR platforms::text ILIKE ${platformPattern})
+                          AND (${tacticPattern}::text IS NULL OR tactic_ids::text ILIKE ${tacticPattern})
+                        ORDER BY mitre_id
+                        LIMIT ${limit}`
+                );
                 const rows = extractRows(result);
 
                 return rows.map((row) => ({

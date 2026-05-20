@@ -9,6 +9,16 @@
  *   console.log(env.DATABASE_URL);
  */
 
+// Load .env from the monorepo root before reading process.env.
+// Resolved relative to this file (apps/api/src/lib/env.ts → ../../../.. = repo root).
+// In containers, .env is absent and dotenv is a no-op; real vars come from compose.
+import { config as loadDotenv } from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+const __envFilename = fileURLToPath(import.meta.url);
+const __envProjectRoot = join(dirname(__envFilename), '../../../..');
+loadDotenv({ path: join(__envProjectRoot, '.env') });
+
 import { z } from 'zod';
 import { createLogger } from './logger';
 
@@ -38,7 +48,7 @@ const EnvSchema = z.object({
     NEO4J_PASSWORD: z.string().optional(),
     OPENSEARCH_URL: z.string().optional(),
     EXA_API_KEY: z.string().optional(),
-    JWT_SECRET: z.string().default('rinjani-dev-secret-change-me'),
+    JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
 });
 
 type Env = z.infer<typeof EnvSchema>;

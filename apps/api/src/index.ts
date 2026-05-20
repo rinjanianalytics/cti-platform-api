@@ -8,6 +8,9 @@
 // OpenTelemetry must be imported FIRST to instrument all subsequent modules
 import './telemetry/otel';
 
+// Environment validation runs at import time — crash fast on missing/invalid config
+import './lib/env';
+
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';

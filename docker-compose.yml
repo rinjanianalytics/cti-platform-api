@@ -519,7 +519,7 @@ services:
       - REDIS_CACHE_URL=redis://v3-redis-cache:6379
       - REDIS_QUEUE_URL=redis://v3-redis-queue:6379
       - OPENSEARCH_URL=http://v3-opensearch:9200
-      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in .env (see .env.example)}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - NEO4J_URI=bolt://v3-neo4j:7687
       - NEO4J_USER=neo4j

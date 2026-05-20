@@ -5,7 +5,7 @@
  * 
  * Environment variables:
  *   API_URL   - Base API URL (default: http://localhost:3001)
- *   API_KEY   - API key for authentication (default: cti-dev-key-2026)
+ *   API_KEY   - API key for authentication (required; configure via API_KEYS env on the server)
  */
 
 import http from 'k6/http';
@@ -36,7 +36,10 @@ export const options = {
 };
 
 const API_URL = __ENV.API_URL || 'http://localhost:3001';
-const API_KEY = __ENV.API_KEY || 'cti-dev-key-2026';
+const API_KEY = __ENV.API_KEY;
+if (!API_KEY) {
+    throw new Error('API_KEY env var is required (e.g. API_KEY=xxx k6 run loadtest.js)');
+}
 
 // Shared request params with auth header
 const authParams = {

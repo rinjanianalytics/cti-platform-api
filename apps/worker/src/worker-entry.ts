@@ -11,15 +11,9 @@
  *   pnpm --filter @rinjani/worker dev:workers
  */
 
-// Load environment variables from project root .env file
-import { config } from 'dotenv';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const projectRoot = join(__dirname, '../../..');
-config({ path: join(projectRoot, '.env') });
+// MUST be the very first import — loads .env before any module that
+// reads process.env at import time (Redis, BullMQ, etc.).
+import './boot-env.js';
 
 // ============================================================================
 // BullMQ Workers (from apps/api/src/queues)

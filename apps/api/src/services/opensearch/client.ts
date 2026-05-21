@@ -74,16 +74,20 @@ export async function createIndices(): Promise<void> {
         'index.knn.algo_param.ef_search': 100,
     };
 
+    // Aggregations and term filters across the codebase reference
+     // `entityType.keyword`, `severity.keyword`, `source.keyword`, `type.keyword`,
+     // and `id.keyword` — keep these multi-fields so the queries resolve.
+    const kw = { fields: { keyword: { type: 'keyword' } } };
     const mappings = {
         properties: {
-            id: { type: 'keyword' },
-            type: { type: 'keyword' },
-            entityType: { type: 'keyword' },
+            id: { type: 'keyword', ...kw },
+            type: { type: 'keyword', ...kw },
+            entityType: { type: 'keyword', ...kw },
             value: { type: 'text', analyzer: 'standard' },
             title: { type: 'text', analyzer: 'standard' },
             description: { type: 'text', analyzer: 'standard' },
-            severity: { type: 'keyword' },
-            source: { type: 'keyword' },
+            severity: { type: 'keyword', ...kw },
+            source: { type: 'keyword', ...kw },
             confidence: { type: 'integer' },
             cvssScore: { type: 'float' },
             tags: { type: 'keyword' },

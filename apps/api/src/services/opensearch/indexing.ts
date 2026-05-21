@@ -392,7 +392,11 @@ export function mapActorToDocument(item: Record<string, unknown>) {
         goals: item.goals || [],
         labels: item.labels || [],
         externalReferences: item.externalReferences || [],
-        confidence: item.confidence || null,
+        // Postgres stores STIX enum string (none/low/medium/high) for actors but
+        // the OpenSearch unified index types `confidence` as integer (IOCs use
+        // 0-100). Normalise to integer at the indexing boundary so both forms
+        // coexist without the mapper_parsing_exception.
+        confidence: confidenceToInteger(item.confidence),
         createdByRef: item.createdByRef || null,
         objectMarkingRefs: item.objectMarkingRefs || [],
         stixCreated: item.stixCreated || null,
@@ -400,6 +404,38 @@ export function mapActorToDocument(item: Record<string, unknown>) {
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
     };
+}
+
+/**
+ * Normalise actor confidence (STIX enum or 0-100 integer string) to a
+ * 0-100 integer for OpenSearch. Buckets match the LLM enrichment
+ * thresholds: high=90, medium=60, low=30, none=0.
+ *
+ * Returns null when input is null/empty so the index entry stays clean.
+ */
+function confidenceToInteger(raw: unknown): number | null {
+    if (raw == null || raw === '') return null;
+    if (typeof raw === 'number') {
+        if (!Number.isFinite(raw)) return null;
+        const pct = raw <= 1 && raw > 0 ? raw * 100 : raw;
+        return Math.max(0, Math.min(100, Math.round(pct)));
+    }
+    if (typeof raw === 'string') {
+        const norm = raw.toLowerCase().trim();
+        switch (norm) {
+            case 'high': case 'very-high': case 'critical': return 90;
+            case 'medium': case 'moderate': case 'mid': return 60;
+            case 'low': case 'minimal': case 'very-low': return 30;
+            case 'none': return 0;
+            default: {
+                const n = Number(norm);
+                if (!Number.isFinite(n)) return null;
+                const pct = n <= 1 && n > 0 ? n * 100 : n;
+                return Math.max(0, Math.min(100, Math.round(pct)));
+            }
+        }
+    }
+    return null;
 }
 
 // ============================================================================
@@ -413,7 +449,7 @@ export async function indexSingleIOC(item: Record<string, unknown>): Promise<voi
     try {
         embedding = await generateEmbedding(getIOCEmbeddingText(doc));
     } catch (err) {
-        log.warn('Embedding failed for IOC', { id: item.id });
+        log.warn('Embedding failed for IOC', { id: item.id, error: (err as Error)?.message });
     }
     await client.index({
         index: INDICES.unified,
@@ -430,7 +466,7 @@ export async function indexSingleVulnerability(item: Record<string, unknown>): P
     try {
         embedding = await generateEmbedding(getVulnerabilityEmbeddingText(doc));
     } catch (err) {
-        log.warn('Embedding failed for vuln', { id: item.id });
+        log.warn('Embedding failed for vuln', { id: item.id, error: (err as Error)?.message });
     }
     await client.index({
         index: INDICES.unified,
@@ -447,7 +483,7 @@ export async function indexSingleActor(item: Record<string, unknown>): Promise<v
     try {
         embedding = await generateEmbedding(getActorEmbeddingText(doc));
     } catch (err) {
-        log.warn('Embedding failed for actor', { id: item.id });
+        log.warn('Embedding failed for actor', { id: item.id, error: (err as Error)?.message });
     }
     await client.index({
         index: INDICES.unified,

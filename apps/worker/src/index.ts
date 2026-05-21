@@ -6,17 +6,8 @@
  * full 10-feed orchestrator with per-feed intervals.
  */
 
-// Load environment variables from project root .env file
-import { config } from 'dotenv';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const projectRoot = join(__dirname, '../../..');
-config({ path: join(projectRoot, '.env') });
-
-console.log('[Worker] Loaded DATABASE_URL:', process.env.DATABASE_URL ? '✅ Set' : '❌ Missing');
+// MUST be the very first import — see boot-env.ts for why.
+import './boot-env.js';
 
 import { feeds, runAllFeeds, type FeedName } from './feeds/index.js';
 

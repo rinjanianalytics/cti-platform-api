@@ -939,6 +939,19 @@ export type FeedSyncHistoryQuery = z.infer<typeof FeedSyncHistoryQuerySchema>;
 // Phase AD — Indicator Lifecycle Management (MISP/STIX 2.1 inspired)
 // ============================================================================
 
+/** POST /v1/iocs — Single manual IOC create */
+export const IOCCreateSchema = z.object({
+    type: z.enum(['ip', 'ipv6', 'domain', 'url', 'hash-md5', 'hash-sha1', 'hash-sha256', 'email', 'hostname', 'cve', 'mutex', 'filename', 'registry']),
+    value: z.string().min(1, 'value is required').max(2048),
+    source: z.string().min(1, 'source is required').max(100),
+    severity: z.enum(['critical', 'high', 'medium', 'low', 'info']).optional(),
+    confidence: z.number().int().min(0).max(100).optional(),
+    tags: z.array(z.string().max(64)).max(50).optional(),
+    threatType: z.string().max(200).optional(),
+    notes: z.string().max(5000).optional(),
+});
+export type IOCCreate = z.infer<typeof IOCCreateSchema>;
+
 /** PUT /v1/iocs/:id — Partial update of IOC fields */
 export const IOCUpdateSchema = z.object({
     severity: z.enum(['critical', 'high', 'medium', 'low', 'info']).optional(),

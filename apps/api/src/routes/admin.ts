@@ -17,6 +17,7 @@ import sandboxRoutes from './admin/sandbox';
 import streamRoutes from './admin/streams';
 import federationRoutes from './admin/federation';
 import rbacRoutes from './admin/rbac';
+import servicesRoutes from './admin/services';
 
 export const adminRouter = new Hono();
 
@@ -52,5 +53,8 @@ adminRouter.route('/', federationRoutes);
 
 // RBAC — role permissions, access matrix, Keycloak mapping
 adminRouter.route('/rbac', rbacRoutes);
+
+// Service health aggregator — datastores + workers + queues + feeds + LLM
+adminRouter.route('/', servicesRoutes);
 
 export default adminRouter;

@@ -82,6 +82,8 @@ export interface SearchOptions {
     query: string;
     filters?: {
         entityType?: string[];
+        /** IOC type (`ip`, `domain`, `url`, `hash`, `email`, `cve`, …) */
+        type?: string[];
         severity?: string[];
         source?: string[];
         dateFrom?: string;
@@ -168,6 +170,9 @@ export async function unifiedSearch(options: SearchOptions): Promise<SearchResul
     // Filters
     if (filters.entityType?.length) {
         filter.push({ terms: { 'entityType.keyword': filters.entityType } });
+    }
+    if (filters.type?.length) {
+        filter.push({ terms: { 'type.keyword': filters.type } });
     }
     if (filters.severity?.length) {
         filter.push({ terms: { 'severity.keyword': filters.severity } });

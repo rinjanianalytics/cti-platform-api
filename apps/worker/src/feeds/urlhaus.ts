@@ -13,6 +13,7 @@
 
 import { db } from '@rinjani/db';
 import { iocs, syncLogs } from '@rinjani/db/schema';
+import { fetchWithRetry } from './_fetch.js';
 
 // =============================================================================
 // Configuration
@@ -68,23 +69,24 @@ interface SyncResult {
 // =============================================================================
 
 async function fetchRecentURLs(limit: number): Promise<URLhausURL[]> {
-    // URLhaus API uses POST with form-encoded body
+    // URLhaus uses the unified abuse.ch Auth-Key — passed as an HTTP HEADER,
+    // not as a form field. The previous implementation put it in the body,
+    // which returns 401 Unauthorized as of the new auth scheme.
+    // Get a free key at https://auth.abuse.ch/ → Account → API key.
     const body = new URLSearchParams({ limit: String(limit) });
 
-    // Auth-Key is required — pass as form field
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+    };
     if (URLHAUS_AUTH_KEY) {
-        body.set('auth_key', URLHAUS_AUTH_KEY);
+        headers['Auth-Key'] = URLHAUS_AUTH_KEY;
     }
 
-    const response = await fetch(`${URLHAUS_API_URL}urls/recent/`, {
+    const response = await fetchWithRetry(`${URLHAUS_API_URL}urls/recent/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers,
         body: body.toString(),
-    });
-
-    if (!response.ok) {
-        throw new Error(`URLhaus API error: ${response.status} ${response.statusText}`);
-    }
+    }, { name: 'URLhaus' });
 
     const data: URLhausResponse = (await response.json()) as URLhausResponse;
 

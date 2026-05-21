@@ -241,4 +241,84 @@ router.post('/vulnerabilities/:id/link', requireAuth, requireRole('admin', 'anal
     }, 201);
 });
 
+// ============================================================================
+// CVSS Enrichment from NVD
+// ============================================================================
+
+import { enrichVulnerability, fetchCvssFromNvd } from '../../services/vulnerabilityEnrichment';
+
+/**
+ * POST /v1/vulnerabilities/:cveId/enrich — fetch CVSS from NVD for one CVE.
+ * Skips if the row already has a score. Admin/analyst only.
+ */
+router.post('/vulnerabilities/:cveId/enrich', requireAuth, requireRole('admin', 'analyst'), async (c) => {
+    const { cveId } = c.req.param();
+    const result = await enrichVulnerability(cveId);
+    if (!result) {
+        // Distinguish "already has a score" from "NVD has no data".
+        const [row] = await db.select({ cvssScore: vulnerabilities.cvssScore })
+            .from(vulnerabilities).where(eq(vulnerabilities.cveId, cveId.toUpperCase())).limit(1);
+        if (!row) throw new NotFoundError('Vulnerability', cveId);
+        return c.json({
+            success: true,
+            data: {
+                cveId,
+                applied: false,
+                reason: row.cvssScore != null ? 'already-scored' : 'no-nvd-data',
+            },
+        });
+    }
+    return c.json({
+        success: true,
+        data: { cveId, applied: true, ...result },
+    });
+});
+
+/**
+ * POST /v1/vulnerabilities/enrich/bulk — back-fill CVSS for all CVEs with
+ * NULL cvssScore. Heavy operation; NVD allows ~5 req/30s without API key,
+ * 50/30s with one. Capped at 100 per call.
+ */
+router.post('/vulnerabilities/enrich/bulk', requireAuth, requireRole('admin'), async (c) => {
+    const body = await c.req.json<{ limit?: number }>().catch(() => ({} as { limit?: number }));
+    const limit = Math.min(Math.max(body.limit ?? 30, 1), 100);
+
+    const candidates = await db.select({ cveId: vulnerabilities.cveId })
+        .from(vulnerabilities)
+        // No drizzle helper for IS NULL on numeric — use raw SQL fragment.
+        .where(sql`${vulnerabilities.cvssScore} IS NULL`)
+        .limit(limit);
+
+    let enriched = 0;
+    let notFound = 0;
+    const errors: Array<{ cveId: string; error: string }> = [];
+
+    for (const row of candidates) {
+        try {
+            const r = await fetchCvssFromNvd(row.cveId);
+            if (!r) { notFound++; continue; }
+            await db.update(vulnerabilities)
+                .set({
+                    cvssScore: r.score.toString(),
+                    cvssVector: r.vector,
+                    severity: r.severity,
+                    updatedAt: new Date(),
+                })
+                .where(eq(vulnerabilities.cveId, row.cveId));
+            enriched++;
+        } catch (err) {
+            errors.push({ cveId: row.cveId, error: (err as Error).message });
+        }
+        // Soft rate-limit — NVD without key allows ~5 req/30s.
+        await new Promise(r => setTimeout(r, NVD_API_KEY_PRESENT ? 200 : 6500));
+    }
+
+    return c.json({
+        success: true,
+        data: { considered: candidates.length, enriched, notFound, errors },
+    });
+});
+
+const NVD_API_KEY_PRESENT = !!(process.env.CVE_API_KEY || process.env.NVD_API_KEY);
+
 export default router;

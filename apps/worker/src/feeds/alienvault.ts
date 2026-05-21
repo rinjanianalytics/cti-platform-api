@@ -13,6 +13,7 @@ import { db } from '@rinjani/db';
 import { pulses, iocs, syncLogs } from '@rinjani/db/schema';
 import { eq, sql } from '@rinjani/db';
 import { getLastSyncTime, toISOParam } from './delta-sync.js';
+import { fetchWithRetry } from './_fetch.js';
 
 // =============================================================================
 // Configuration
@@ -69,19 +70,13 @@ interface OTXResponse {
 // =============================================================================
 
 async function otxRequest<T>(endpoint: string): Promise<T> {
-    const url = `${ALIENVAULT_BASE_URL}${endpoint}`;
-
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(`${ALIENVAULT_BASE_URL}${endpoint}`, {
         method: 'GET',
         headers: {
             'X-OTX-API-KEY': ALIENVAULT_API_KEY,
             'Accept': 'application/json',
         },
-    });
-
-    if (!response.ok) {
-        throw new Error(`OTX API error: ${response.status} ${response.statusText}`);
-    }
+    }, { name: 'AlienVault' });
 
     return response.json() as Promise<T>;
 }
@@ -408,13 +403,23 @@ async function syncAlienVault(): Promise<SyncResult> {
 
 // Log sync results
 async function logSync(result: SyncResult, startedAt: Date): Promise<void> {
+    // Status precedence:
+    //   no errors AND items processed         → success
+    //   errors exist AND items processed      → partial (some pages worked)
+    //   errors exist AND nothing processed    → failure (every page bombed)
+    //   no errors AND nothing processed       → success (genuinely no new data)
+    const hasErrors = result.errors.length > 0;
+    const status = hasErrors
+        ? (result.processed > 0 ? 'partial' : 'failure')
+        : 'success';
+
     await db.insert(syncLogs).values({
         entityType: 'alienvault_pulses',
-        status: result.failed === 0 ? 'success' : 'partial',
+        status,
         itemsProcessed: result.processed,
         itemsFailed: result.failed,
         lastSyncCursor: new Date().toISOString(),
-        errorMessage: result.errors.length > 0 ? result.errors.slice(0, 5).join('\n') : null,
+        errorMessage: hasErrors ? result.errors.slice(0, 5).join('\n') : null,
         startedAt,
         completedAt: new Date(),
     });

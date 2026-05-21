@@ -416,4 +416,116 @@ router.get('/mitre/matrix', async (c) => {
     });
 });
 
+// ============================================================================
+// CTI home — lightweight aggregates
+// ============================================================================
+
+/**
+ * GET /v1/mitre/coverage
+ *
+ * Per-tactic technique count, suitable for an ATT&CK coverage strip on the
+ * home page. Cheaper than /mitre/matrix (no relationships, no actor join).
+ * Note: `techniques.tactic_ids` is stored as a JSONB string containing a
+ * JSON array (double-encoded) so we parse it via `#>> '{}'` then re-cast.
+ */
+router.get('/mitre/coverage', async (c) => {
+    const rows = await db.execute(sql`
+        SELECT
+          t.mitre_id  AS mitre_id,
+          t.name      AS name,
+          t.short_name AS short_name,
+          COUNT(DISTINCT tech.id) AS technique_count
+        FROM tactics t
+        LEFT JOIN techniques tech
+          ON (tech.tactic_ids #>> '{}')::jsonb @> to_jsonb(t.mitre_id::text)
+        GROUP BY t.mitre_id, t.name, t.short_name
+        ORDER BY t.mitre_id
+    `) as unknown as Array<{
+        mitre_id: string;
+        name: string;
+        short_name: string | null;
+        technique_count: string | number;
+    }>;
+
+    const tactics = rows.map(r => ({
+        mitreId: r.mitre_id,
+        name: r.name,
+        shortName: r.short_name ?? r.name,
+        techniqueCount: Number(r.technique_count) || 0,
+    }));
+
+    const totalTechniques = tactics.reduce((sum, t) => sum + t.techniqueCount, 0);
+
+    return c.json({
+        success: true,
+        data: { tactics, totalTechniques },
+    });
+});
+
+/**
+ * GET /v1/actors/active?limit=10
+ *
+ * Most-recently-active threat actors, ordered by COALESCE(last_seen,
+ * updated_at) DESC. Returns enough surface to render a watchlist row:
+ * name, aliases, country, sophistication, last-seen, primary motivation.
+ *
+ * No expensive joins — the home page block calls this once for an
+ * overview; deeper drill-down lives on the actor detail page.
+ */
+router.get('/actors/active', async (c) => {
+    const limitRaw = Number(c.req.query('limit') ?? 10);
+    const limit = Math.min(Math.max(Math.floor(limitRaw) || 10, 1), 50);
+
+    // Prefer actors with curated activity (`last_seen IS NOT NULL`). They have
+    // real attribution dates; the rest are bulk-synced metadata records.
+    // `aliases` is stored as a JSONB *string* containing JSON (double-encoded),
+    // so it's parsed via `#>> '{}'` then re-cast in the mapper below.
+    const rows = await db.execute(sql`
+        SELECT
+          id,
+          stix_id,
+          name,
+          (aliases #>> '{}')::jsonb AS aliases_array,
+          country,
+          sophistication,
+          primary_motivation,
+          first_seen,
+          last_seen,
+          updated_at
+        FROM threat_actors
+        WHERE last_seen IS NOT NULL
+        ORDER BY last_seen DESC
+        LIMIT ${limit}
+    `) as unknown as Array<{
+        id: string;
+        stix_id: string | null;
+        name: string;
+        aliases_array: unknown;
+        country: string | null;
+        sophistication: string | null;
+        primary_motivation: string | null;
+        first_seen: Date | string | null;
+        last_seen: Date | string | null;
+        updated_at: Date | string | null;
+    }>;
+
+    const actors = rows.map(r => ({
+        id: r.id,
+        stixId: r.stix_id,
+        name: r.name,
+        aliases: Array.isArray(r.aliases_array) ? (r.aliases_array as string[]) : [],
+        country: r.country,
+        sophistication: r.sophistication,
+        primaryMotivation: r.primary_motivation,
+        firstSeen: r.first_seen,
+        lastSeen: r.last_seen,
+        updatedAt: r.updated_at,
+    }));
+
+    return c.json({
+        success: true,
+        data: { actors },
+    });
+});
+
 export default router;

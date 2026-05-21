@@ -15,10 +15,24 @@ import { db, eq, sql } from '@rinjani/db';
 import { iocs } from '@rinjani/db/schema';
 import { requireAuth, requireRole } from '../../middleware/auth';
 import {
-    IOCUpdateSchema, IOCRevokeSchema, IOCExpireSchema, IOCVerdictSchema,
+    IOCCreateSchema, IOCUpdateSchema, IOCRevokeSchema, IOCExpireSchema, IOCVerdictSchema,
 } from '../../lib/schemas';
+import { ConflictError } from '../../lib/errors';
 
 const router = new Hono();
+
+/**
+ * The IOC pipeline stores all hashes under a single canonical type `hash` —
+ * the granular algorithm (md5/sha1/sha256) lives in `patternType` or the
+ * value itself. Front-end dropdowns expose the granular variants for UX, so
+ * we normalise back to the canonical bucket before querying.
+ */
+function normaliseIocType(raw: string): string {
+    const norm = raw.toLowerCase().trim();
+    if (norm.startsWith('hash')) return 'hash';
+    if (norm === 'ipv4' || norm === 'ipv6') return 'ip';
+    return norm;
+}
 
 // ============================================================================
 // IOCs (Indicators of Compromise) — Offset Pagination (OpenSearch)
@@ -27,12 +41,15 @@ const router = new Hono();
 router.get('/iocs', async (c) => {
     const { page, pageSize, q, type, source, severity, dateFrom, dateTo } = IOCFilterSchema.parse(c.req.query());
 
-    // Use OpenSearch for fast search with facets
+    // Use OpenSearch for fast search with facets.
+    // NOTE: `type` filter maps to the OpenSearch `type` field (ip/domain/url/hash/email/cve).
+    // The granular dropdown options like `hash-sha256` should be normalised to
+    // the canonical bucket before reaching here.
     const result = await opensearch.unifiedSearch({
         query: q || '',
         filters: {
             entityType: ['ioc'],
-            ...(type ? { source: [type] } : {}), // type maps to OpenSearch type field
+            ...(type ? { type: [normaliseIocType(type)] } : {}),
             ...(source ? { source: [source] } : {}),
             ...(severity ? { severity: [severity] } : {}),
             ...(dateFrom ? { dateFrom } : {}),
@@ -221,6 +238,57 @@ function parseIocId(raw: string): string {
 function mergeRawData(patch: Record<string, unknown>) {
     return sql`COALESCE(${iocs.rawData}, '{}'::jsonb) || ${patch}::jsonb`;
 }
+
+/** POST /v1/iocs — Create a single IOC manually.
+ *
+ *  Distinct from `POST /bulk/iocs` (bulk ingest). Returns 409 on duplicate
+ *  `value`. Analysts can create; admins can too.
+ */
+router.post('/iocs', requireAuth, requireRole('admin', 'analyst'), async (c) => {
+    const body = IOCCreateSchema.parse(await c.req.json().catch(() => ({})));
+    const userId = c.get('user')?.id || 'unknown';
+
+    const now = new Date();
+    const rawData = body.notes
+        ? { notes: body.notes, createdBy: userId }
+        : { createdBy: userId };
+
+    try {
+        const [row] = await db.insert(iocs).values({
+            type: body.type,
+            value: body.value,
+            source: body.source,
+            severity: body.severity ?? null,
+            confidence: body.confidence ?? null,
+            tags: body.tags ?? null,
+            threatType: body.threatType ?? null,
+            firstSeen: now,
+            lastSeen: now,
+            rawData,
+        }).returning({
+            id: iocs.id,
+            type: iocs.type,
+            value: iocs.value,
+            source: iocs.source,
+            severity: iocs.severity,
+            confidence: iocs.confidence,
+            tags: iocs.tags,
+            threatType: iocs.threatType,
+            firstSeen: iocs.firstSeen,
+            lastSeen: iocs.lastSeen,
+            createdAt: iocs.createdAt,
+        });
+
+        return c.json({ success: true, data: row }, 201);
+    } catch (err) {
+        // Drizzle / postgres-js surfaces unique-violation as code 23505.
+        const e = err as { code?: string; message?: string };
+        if (e.code === '23505' || (e.message ?? '').includes('duplicate key')) {
+            throw new ConflictError(`IOC with value "${body.value}" already exists`);
+        }
+        throw err;
+    }
+});
 
 /** PUT /v1/iocs/:id — Partial update of IOC fields */
 router.put('/iocs/:id', requireAuth, requireRole('admin', 'analyst'), async (c) => {

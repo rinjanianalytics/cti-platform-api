@@ -24,6 +24,7 @@ import {
     createUser,
     updateUser,
     deleteUser,
+    purgeUser,
     activateUser,
     deactivateUser,
     regenerateApiToken,
@@ -152,7 +153,7 @@ router.put('/users/:id', requireAuth, requireRole('admin'), async (c) => {
     return c.json({ success: true, data: user });
 });
 
-/** DELETE /users/:id — Soft-delete (deactivate) user */
+/** DELETE /users/:id — Soft-delete (deactivate) user. Reversible via /activate. */
 router.delete('/users/:id', requireAuth, requireRole('admin'), async (c) => {
     const id = c.req.param('id');
 
@@ -169,6 +170,31 @@ router.delete('/users/:id', requireAuth, requireRole('admin'), async (c) => {
 
     logAudit({ entityType: 'user', entityId: id, action: 'delete', userId: c.get('user').id, source: 'admin' });
     return c.json({ success: true, message: 'User deactivated' });
+});
+
+/**
+ * DELETE /users/:id/purge — HARD delete. Removes the row.
+ * Use for permanent bans / GDPR right-to-erasure / test-account cleanup.
+ * Cascades: org memberships, API keys, sessions, oauth identities (all drop).
+ * Severs: playbooks.created_by and sightings.created_by set to NULL so
+ * historic records keep working.
+ * Preserves: audit_logs (no FK — audit trail outlives the user).
+ */
+router.delete('/users/:id/purge', requireAuth, requireRole('admin'), async (c) => {
+    const id = c.req.param('id');
+
+    const currentUser = c.get('user');
+    if (currentUser.id === id) {
+        throw new ForbiddenError('Cannot purge your own account');
+    }
+
+    const ok = await purgeUser(id);
+    if (!ok) {
+        throw new NotFoundError('User', id);
+    }
+
+    logAudit({ entityType: 'user', entityId: id, action: 'delete', userId: c.get('user').id, source: 'admin', metadata: { hard: true, reason: 'purge' } });
+    return c.json({ success: true, message: 'User permanently deleted' });
 });
 
 // ============================================================================

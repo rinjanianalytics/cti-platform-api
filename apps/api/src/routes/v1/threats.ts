@@ -403,4 +403,138 @@ router.delete('/threats/actors/:id', requireAuth, requireRole('admin'), async (c
     return c.json({ success: true, data: { id, deleted: true } });
 });
 
+// ============================================================================
+// Actor Enrichment (LLM-driven — fills null/empty STIX fields from description)
+// ============================================================================
+
+import { enrichActor } from '../../services/actorEnrichment';
+
+/** POST /v1/threats/:id/enrich — enrich a single actor; admin/analyst only */
+router.post('/threats/:id/enrich', requireAuth, requireRole('admin', 'analyst'), async (c) => {
+    const { id } = c.req.param();
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    const whereClause = isUUID ? eq(threatActors.id, id) : eq(threatActors.name, decodeURIComponent(id));
+
+    const [actor] = await db.select().from(threatActors).where(whereClause).limit(1);
+    if (!actor) throw new NotFoundError('Threat actor', id);
+
+    // Historical rows may have scalars in jsonb array columns — coerce.
+    const safeArr = (v: unknown): string[] =>
+        Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+
+    const enrichment = await enrichActor({
+        id: actor.id,
+        name: actor.name,
+        description: actor.description,
+        aliases: safeArr(actor.aliases),
+        sophistication: actor.sophistication,
+        resourceLevel: actor.resourceLevel,
+        primaryMotivation: actor.primaryMotivation,
+        goals: safeArr(actor.goals),
+        labels: safeArr(actor.labels),
+        confidence: actor.confidence as string | null,
+    });
+
+    const filledKeys = Object.keys(enrichment);
+    if (filledKeys.length === 0) {
+        return c.json({ success: true, data: { id: actor.id, filled: [], message: 'No new fields could be inferred' } });
+    }
+
+    const [updated] = await db.update(threatActors)
+        .set({ ...enrichment, updatedAt: new Date() })
+        .where(eq(threatActors.id, actor.id))
+        .returning();
+
+    return c.json({
+        success: true,
+        data: {
+            id: actor.id,
+            filled: filledKeys,
+            actor: updated,
+        },
+    });
+});
+
+/**
+ * POST /v1/threats/enrich/bulk — enrich up to N actors that have at least
+ * one null field. Returns counts; admin only. Heavy operation — rate-limited
+ * by Gemini's free-tier ~150 RPM in practice.
+ */
+router.post('/threats/enrich/bulk', requireAuth, requireRole('admin'), async (c) => {
+    const body = await c.req.json<{ limit?: number }>().catch(() => ({} as { limit?: number }));
+    const limit = Math.min(Math.max(body.limit ?? 50, 1), 500);
+
+    // Pick actors with at least one null field AND a meaningful description.
+    // Note: older rows may store a scalar in `aliases`/`labels` instead of an
+    // array — `jsonb_array_length` throws 22023 on those, so we guard with
+    // `jsonb_typeof(...) = 'array'` before calling length.
+    const candidates = await db.execute(sql.raw(`
+        SELECT id, name, description, aliases, sophistication, resource_level,
+               primary_motivation, goals, labels, confidence
+        FROM threat_actors
+        WHERE LENGTH(COALESCE(description, '')) >= 40
+          AND (
+              sophistication IS NULL OR
+              resource_level IS NULL OR
+              primary_motivation IS NULL OR
+              aliases IS NULL OR jsonb_typeof(aliases) <> 'array' OR jsonb_array_length(aliases) = 0 OR
+              labels  IS NULL OR jsonb_typeof(labels)  <> 'array' OR jsonb_array_length(labels)  = 0
+          )
+        ORDER BY updated_at DESC
+        LIMIT ${limit}
+    `)) as unknown as Array<{
+        id: string; name: string; description: string | null;
+        aliases: string[] | null; sophistication: string | null;
+        resource_level: string | null; primary_motivation: string | null;
+        goals: string[] | null; labels: string[] | null; confidence: string | null;
+    }>;
+
+    let enrichedCount = 0;
+    let skippedCount = 0;
+    const errors: Array<{ id: string; name: string; error: string }> = [];
+
+    /** Coerce jsonb scalars/null back to an array — historical rows may
+     *  have a string in aliases/labels/goals due to upstream ingestion bugs. */
+    const arr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+
+    for (const row of candidates) {
+        try {
+            const enrichment = await enrichActor({
+                id: row.id,
+                name: row.name,
+                description: row.description,
+                aliases: arr(row.aliases),
+                sophistication: row.sophistication,
+                resourceLevel: row.resource_level,
+                primaryMotivation: row.primary_motivation,
+                goals: arr(row.goals),
+                labels: arr(row.labels),
+                confidence: row.confidence as string | null,
+            });
+
+            if (Object.keys(enrichment).length === 0) {
+                skippedCount++;
+                continue;
+            }
+
+            await db.update(threatActors)
+                .set({ ...enrichment, updatedAt: new Date() })
+                .where(eq(threatActors.id, row.id));
+            enrichedCount++;
+        } catch (err) {
+            errors.push({ id: row.id, name: row.name, error: (err as Error).message });
+        }
+    }
+
+    return c.json({
+        success: true,
+        data: {
+            considered: candidates.length,
+            enriched: enrichedCount,
+            skipped: skippedCount,
+            errors,
+        },
+    });
+});
+
 export default router;

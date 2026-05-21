@@ -7,8 +7,12 @@
  *
  * Environment Variables:
  *   REDIS_QUEUE_URL - Redis for BullMQ (default: redis://localhost:6380)
- *   REDIS_CACHE_URL - Redis for cache  (default: redis://localhost:6379)
+ *   REDIS_CACHE_URL - Redis for cache  (default: redis://localhost:6381)
  *   REDIS_URL       - Legacy fallback (both point here if split vars missing)
+ *
+ * Defaults match docker-compose.yml — `v3-redis-queue` exposes 6380 on the
+ * host, `v3-redis-cache` exposes 6381. If you swap the compose file or run
+ * Redis natively on 6379, set REDIS_URL / REDIS_CACHE_URL explicitly.
  */
 
 import { Redis } from 'ioredis';
@@ -44,7 +48,7 @@ connection.on('error', (err) => {
 
 const cacheUrl = process.env.REDIS_CACHE_URL
     || process.env.REDIS_URL
-    || 'redis://localhost:6379';
+    || 'redis://localhost:6381';
 
 export const cacheConnection = new Redis(cacheUrl, {
     maxRetriesPerRequest: 3,

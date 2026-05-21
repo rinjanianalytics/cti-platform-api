@@ -4,7 +4,7 @@
  * Core tables for user management and authentication.
  */
 
-import { pgTable, uuid, varchar, text, timestamp, boolean, jsonb, integer, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, boolean, jsonb, integer, pgEnum, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // ============================================================================
@@ -86,6 +86,29 @@ export const apiKeys = pgTable('api_keys', {
 });
 
 // ============================================================================
+// OAuth identities — links an external provider account (Google, GitHub, …)
+// to a Rinjani user. One user can have multiple identities (sign in with
+// either provider, same account). `subject` is the provider's stable user id.
+// ============================================================================
+
+export const oauthIdentities = pgTable('oauth_identities', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    provider: varchar('provider', { length: 32 }).notNull(), // 'google' | 'github' | …
+    subject: varchar('subject', { length: 128 }).notNull(),  // provider's user id
+    emailAtLink: varchar('email_at_link', { length: 255 }),  // email at time of linking
+    linkedAt: timestamp('linked_at', { withTimezone: true }).defaultNow().notNull(),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+}, (table) => ({
+    // A provider's subject is unique per provider — one Google sub → one user.
+    providerSubjectUnique: uniqueIndex('oauth_identities_provider_subject_unique').on(table.provider, table.subject),
+}));
+
+export const oauthIdentitiesRelations = relations(oauthIdentities, ({ one }) => ({
+    user: one(users, { fields: [oauthIdentities.userId], references: [users.id] }),
+}));
+
+// ============================================================================
 // Sessions
 // ============================================================================
 
@@ -107,6 +130,7 @@ export const usersRelations = relations(users, ({ many }) => ({
     organizations: many(userOrganizations),
     apiKeys: many(apiKeys),
     sessions: many(sessions),
+    oauthIdentities: many(oauthIdentities),
 }));
 
 export const organizationsRelations = relations(organizations, ({ one, many }) => ({

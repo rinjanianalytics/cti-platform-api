@@ -15,6 +15,7 @@ import { db } from '@rinjani/db';
 import { iocs, syncLogs } from '@rinjani/db/schema';
 import { eq } from '@rinjani/db';
 import { daysSinceLastSync } from './delta-sync.js';
+import { fetchWithRetry } from './_fetch.js';
 
 // =============================================================================
 // Configuration
@@ -96,15 +97,11 @@ async function fetchRecentIOCs(days: number): Promise<ThreatFoxIOC[]> {
         headers['Auth-Key'] = THREATFOX_AUTH_KEY;
     }
 
-    const response = await fetch(THREATFOX_API_URL, {
+    const response = await fetchWithRetry(THREATFOX_API_URL, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-        throw new Error(`ThreatFox API error: ${response.status} ${response.statusText}`);
-    }
+    }, { name: 'ThreatFox' });
 
     const data: ThreatFoxResponse = (await response.json()) as ThreatFoxResponse;
 

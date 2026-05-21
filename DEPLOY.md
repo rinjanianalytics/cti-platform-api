@@ -307,6 +307,64 @@ api:
 
 ---
 
+## OAuth Sign-in (Google + GitHub)
+
+Operators and analysts sign in via Google or GitHub OAuth. The `api_key` paste
+flow remains for service-to-service automation but is **not** the human path.
+
+### 1. Register the OAuth apps
+
+**Google** — https://console.cloud.google.com/apis/credentials
+- Application type: Web application
+- Authorised redirect URI: `${API_PUBLIC_URL}/auth/oauth/google/callback`
+  (e.g. `http://localhost:3001/auth/oauth/google/callback` in dev)
+- Copy Client ID + Client secret to env
+
+**GitHub** — https://github.com/settings/developers → New OAuth App
+- Homepage URL: your dashboard URL (e.g. `http://localhost:3000`)
+- Authorisation callback URL: `${API_PUBLIC_URL}/auth/oauth/github/callback`
+- Copy Client ID + Client secret to env
+
+### 2. Set env vars (api side, `.env`)
+
+```bash
+# Where the dashboard lives (used for post-OAuth redirect)
+DASHBOARD_URL=http://localhost:3000
+
+# Public-facing API URL — must match the redirect URI registered with each provider
+API_PUBLIC_URL=http://localhost:3001
+
+GOOGLE_OAUTH_CLIENT_ID=…
+GOOGLE_OAUTH_CLIENT_SECRET=…
+GITHUB_OAUTH_CLIENT_ID=…
+GITHUB_OAUTH_CLIENT_SECRET=…
+
+# Comma-separated emails that get role=admin on first OAuth sign-in.
+# Everyone else lands as 'viewer' and must be elevated manually.
+ADMIN_EMAILS=ops@yourcompany.com,security-lead@yourcompany.com
+```
+
+### 3. First sign-in
+
+Restart the API. The dashboard `/login` will discover available providers via
+`GET /auth/oauth/providers` and render the matching buttons.
+
+The `oauth_identities` table is created idempotently on first sign-in — no
+manual migration step required.
+
+### Operational notes
+
+- **State + PKCE** are cookie-backed (HttpOnly, SameSite=Lax, 10 min TTL).
+- **Token transport back to dashboard** is a one-time `?token=…` query param
+  that the dashboard consumes and strips from the URL on load.
+- **Existing users**: if an OAuth email matches an existing `users.email`,
+  the new identity is linked to that user rather than creating a duplicate.
+- **Role promotion**: changing `ADMIN_EMAILS` later only affects *new* users
+  on their *first* sign-in. To elevate an existing user, update their
+  `roles` via `/admin/rbac` (UI shipping in a follow-up) or in the DB.
+
+---
+
 ## Support
 
 - **Documentation**: See README.md

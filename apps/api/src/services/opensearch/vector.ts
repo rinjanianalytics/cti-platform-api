@@ -100,14 +100,30 @@ export async function findSimilar(
 ): Promise<VectorSearchResult> {
     const client = getOpenSearchClient();
 
-    // Get the source document's embedding
-    try {
-        const docResponse = await client.get({
-            index: INDICES.unified,
-            id: docId,
-        });
+    // OpenSearch _ids are prefixed (`ioc-<uuid>`, `vuln-<uuid>`, `actor-<uuid>`).
+    // Callers usually pass the raw postgres uuid — try that first, then fall
+    // back to the entity-prefixed form. Order: plain, ioc-, vuln-, actor-.
+    const candidates: string[] = [docId];
+    if (!/^(ioc|vuln|actor)-/.test(docId)) {
+        if (entityType === 'vulnerability') candidates.push(`vuln-${docId}`);
+        else if (entityType === 'threat_actor') candidates.push(`actor-${docId}`);
+        else if (entityType === 'ioc') candidates.push(`ioc-${docId}`);
+        else candidates.push(`ioc-${docId}`, `vuln-${docId}`, `actor-${docId}`);
+    }
 
-        const sourceEmbedding = docResponse.body._source?.embedding;
+    let sourceEmbedding: number[] | undefined;
+    for (const id of candidates) {
+        try {
+            const docResponse = await client.get({ index: INDICES.unified, id });
+            sourceEmbedding = docResponse.body._source?.embedding;
+            if (sourceEmbedding) break;
+        } catch (error) {
+            if ((error as { meta?: { statusCode?: number } }).meta?.statusCode !== 404) throw error;
+            // fall through to next candidate
+        }
+    }
+
+    try {
         if (!sourceEmbedding) {
             return { items: [], total: 0, took: 0 };
         }

@@ -4,13 +4,28 @@
  * Starts all background services (scheduler, DB listener, workers,
  * web search worker, graceful shutdown handler, scheduled jobs).
  * Called once after the HTTP server starts.
+ *
+ * Guarded by a cross-process Redis advisory lock (see `lib/bootlock.ts`)
+ * so concurrent api + gateway processes don't both boot the same services
+ * — which used to double load on Postgres, OpenSearch, and Gemini.
  */
 
 import { createLogger } from './lib/logger';
+import { tryAcquireBootLock, releaseBootLock } from './lib/bootlock';
 
 const log = createLogger('Boot');
 
 export async function bootServices(): Promise<void> {
+    // Cross-process guard: if another instance already booted these services,
+    // skip ours. Graceful shutdown below releases the lock for the next holder.
+    const owns = await tryAcquireBootLock();
+    if (!owns) {
+        // Still want SIGTERM/SIGINT to close DB/Redis connections cleanly,
+        // even though we never booted background services here.
+        setupGracefulShutdown();
+        return;
+    }
+
     // Run pending database migrations before anything else
     import('./services/migrations').then(({ autoMigrateOnStartup }) => {
         autoMigrateOnStartup();
@@ -33,30 +48,32 @@ export async function bootServices(): Promise<void> {
     });
 
     // ── Platform service availability checks (optional services) ──────────
-    import('./services/vault').then(({ secrets }) => {
-        secrets.isAvailable().then(ok => {
-            log.info(`Vault: ${ok ? '✅ connected' : '⏭️  unavailable (using env vars)'}`);
+    // Probe all four in parallel, then emit a single summary line. Reduces
+    // boot-log noise from 4 INFO lines (one per service) to 1.
+    Promise.all([
+        import('./services/vault')
+            .then(m => m.secrets.isAvailable().then(ok => ({ name: 'Vault', ok })))
+            .catch(() => ({ name: 'Vault', ok: false })),
+        import('./services/keycloak')
+            .then(m => m.keycloak.isAvailable().then(ok => ({ name: 'Keycloak', ok })))
+            .catch(() => ({ name: 'Keycloak', ok: false })),
+        import('./services/meilisearch')
+            .then(m => m.meiliSearch.isAvailable().then(ok => {
+                if (ok) m.meiliSearch.setupIndex();
+                return { name: 'MeiliSearch', ok };
+            }))
+            .catch(() => ({ name: 'MeiliSearch', ok: false })),
+        import('./services/n8n')
+            .then(m => m.n8nClient.isAvailable().then((ok: boolean) => ({ name: 'n8n', ok })))
+            .catch(() => ({ name: 'n8n', ok: false })),
+    ]).then(results => {
+        const active = results.filter(r => r.ok).map(r => r.name);
+        const skipped = results.filter(r => !r.ok).map(r => r.name);
+        log.info(`Optional services: ${active.length}/${results.length} active`, {
+            active: active.length ? active : undefined,
+            skipped: skipped.length ? skipped : undefined,
         });
-    }).catch(() => { /* vault module load failure — non-critical */ });
-
-    import('./services/keycloak').then(({ keycloak }) => {
-        keycloak.isAvailable().then(ok => {
-            log.info(`Keycloak: ${ok ? '✅ connected' : '⏭️  unavailable (using API key auth)'}`);
-        });
-    }).catch(() => { /* keycloak module load failure — non-critical */ });
-
-    import('./services/meilisearch').then(({ meiliSearch }) => {
-        meiliSearch.isAvailable().then(ok => {
-            if (ok) meiliSearch.setupIndex();
-            log.info(`MeiliSearch: ${ok ? '✅ connected + index configured' : '⏭️  unavailable'}`);
-        });
-    }).catch(() => { /* meilisearch module load failure — non-critical */ });
-
-    import('./services/n8n').then(({ n8nClient }) => {
-        n8nClient.isAvailable().then((ok: boolean) => {
-            log.info(`n8n: ${ok ? '✅ connected' : '⏭️  unavailable'}`);
-        });
-    }).catch(() => { /* n8n module load failure — non-critical */ });
+    });
 
     // Start SSE event bus (Redis Pub/Sub)
     import('./services/eventBus').then(({ eventBus }) => {
@@ -161,29 +178,7 @@ export async function bootServices(): Promise<void> {
     // apps/worker/src/worker-entry.ts for independent scaling.
     // Run with: pnpm --filter @rinjani/worker start:workers
 
-    // Graceful shutdown: close all DB + Redis connections on process signals
-    Promise.all([
-        import('./lib/db/clients'),
-        import('./services/redis'),
-        import('./services/eventBus'),
-        import('./services/eventStream'),
-    ]).then(([{ shutdownAll }, { shutdownRedis }, { eventBus }, { eventStream }]) => {
-        const shutdown = async (signal: string) => {
-            log.info(`Received ${signal}, shutting down gracefully...`);
-            await Promise.allSettled([
-                shutdownAll(),
-                shutdownRedis(),
-                eventBus.shutdown(),
-                eventStream.shutdown(),
-            ]);
-            log.info('All connections closed, exiting');
-            process.exit(0);
-        };
-        process.on('SIGTERM', () => shutdown('SIGTERM'));
-        process.on('SIGINT', () => shutdown('SIGINT'));
-    }).catch(err => {
-        log.warn('Failed to setup graceful shutdown', { error: err.message });
-    });
+    setupGracefulShutdown();
 
     // NOTE: Scheduled jobs (cron-like repeatable BullMQ jobs) have been
     // extracted to apps/worker/src/worker-entry.ts.
@@ -204,5 +199,42 @@ export async function bootServices(): Promise<void> {
         log.info('Playbook event listener registered');
     }).catch(err => {
         log.warn('Failed to register playbook event listener', { error: err.message });
+    });
+}
+
+/**
+ * Idempotent shutdown wiring — safe to call from both owner and non-owner
+ * paths. Closes DB + Redis pools and releases the bootlock if we hold it
+ * so the next process can grab it without waiting for the 30s TTL.
+ */
+let shutdownWired = false;
+function setupGracefulShutdown(): void {
+    if (shutdownWired) return;
+    shutdownWired = true;
+
+    Promise.all([
+        import('./lib/db/clients'),
+        import('./services/redis'),
+        import('./services/eventBus'),
+        import('./services/eventStream'),
+    ]).then(([{ shutdownAll }, { shutdownRedis }, { eventBus }, { eventStream }]) => {
+        const shutdown = async (signal: string) => {
+            log.info(`Received ${signal}, shutting down gracefully...`);
+            // Release bootlock FIRST so the next process can claim it
+            // before we tear down the Redis connection.
+            await releaseBootLock();
+            await Promise.allSettled([
+                shutdownAll(),
+                shutdownRedis(),
+                eventBus.shutdown(),
+                eventStream.shutdown(),
+            ]);
+            log.info('All connections closed, exiting');
+            process.exit(0);
+        };
+        process.on('SIGTERM', () => shutdown('SIGTERM'));
+        process.on('SIGINT', () => shutdown('SIGINT'));
+    }).catch(err => {
+        log.warn('Failed to setup graceful shutdown', { error: err.message });
     });
 }

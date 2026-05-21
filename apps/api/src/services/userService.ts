@@ -342,6 +342,35 @@ export async function deleteUser(id: string): Promise<boolean> {
     return true;
 }
 
+/**
+ * Hard-delete (purge) a user. Used for permanent bans / GDPR right-to-erasure /
+ * test-account cleanup. UNLIKE `deleteUser`, this actually removes the row.
+ *
+ * FK landscape:
+ *   - userOrganizations / apiKeys / sessions / oauthIdentities — cascade (drop)
+ *   - playbooks.createdBy / sightings.createdBy — no cascade (would block).
+ *     We NULL them out first to preserve the historic record while severing
+ *     the identity link.
+ *   - audit_logs.userId — no FK constraint, history preserved as-is (the
+ *     audit trail intentionally outlives the user).
+ *
+ * Returns true on success, false if the user didn't exist.
+ */
+export async function purgeUser(id: string): Promise<boolean> {
+    // Lazy-import sibling schemas to avoid circular deps.
+    const { playbooks } = await import('@rinjani/db/schema');
+    const { sightings } = await import('@rinjani/db/schema');
+
+    // Null out FK refs first so the user delete isn't blocked.
+    await db.update(playbooks).set({ createdBy: null }).where(eq(playbooks.createdBy, id));
+    await db.update(sightings).set({ createdBy: null }).where(eq(sightings.createdBy, id));
+
+    const [row] = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id });
+    if (!row) return false;
+    log.warn('User PURGED (hard delete) — row removed', { id });
+    return true;
+}
+
 export async function activateUser(id: string): Promise<UserRecord | null> {
     const [row] = await db.update(users).set({ isActive: true, updatedAt: new Date() }).where(eq(users.id, id)).returning();
     if (!row) return null;

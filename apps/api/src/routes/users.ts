@@ -13,6 +13,49 @@ import { CreateUserSchema, UpdateUserSchema, UserListQuerySchema } from '../lib/
 const users = new Hono();
 
 // ============================================================================
+// GET /users/me — current authenticated user
+//
+// Returns the JWT-resolved user plus DB profile (avatarUrl, real email) when
+// the JWT `sub` is a real UUID. Replaces the dashboard hack that listed every
+// user and fuzzy-matched email to find the current one.
+// ============================================================================
+
+users.get('/me', requireAuth, async (c) => {
+    const u = c.get('user');
+    let profile: { avatarUrl: string | null; email?: string; lastLogin?: string | null } | null = null;
+
+    try {
+        const { getUserById } = await import('../services/userService');
+        const dbUser = await getUserById(u.id);
+        if (dbUser) {
+            profile = {
+                avatarUrl: (dbUser.avatarUrl as string | null) ?? null,
+                email: (dbUser.email as string) ?? undefined,
+                lastLogin: (dbUser.lastLogin as string | null) ?? null,
+            };
+        }
+    } catch {
+        // Non-UUID sub (e.g. `key:abc123` for API-key sessions) or DB miss — silent fall-through.
+    }
+
+    return c.json({
+        success: true,
+        data: {
+            id: u.id,
+            name: u.name,
+            role: u.role,
+            method: u.method,
+            tenantId: u.tenantId ?? null,
+            tenantRole: u.tenantRole ?? null,
+            permissions: u.permissions ?? [],
+            avatarUrl: profile?.avatarUrl ?? null,
+            email: profile?.email ?? null,
+            lastLogin: profile?.lastLogin ?? null,
+        },
+    });
+});
+
+// ============================================================================
 // In-Memory User Store (for demo - replace with database in production)
 // ============================================================================
 

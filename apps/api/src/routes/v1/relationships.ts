@@ -70,7 +70,7 @@ router.get('/relationships', async (c) => {
         rawQuery(sql.raw(`SELECT COUNT(*) AS total FROM relationships WHERE ${where}`)),
     ]);
     const total = Number((cnt.rows?.[0] as Record<string, unknown>)?.total || 0);
-    return c.json({ success: true, data: { items: items.rows || [], pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } } });
+    return c.json({ success: true, data: { items: items.rows || [], pagination: { page, pageSize, total, pages: Math.ceil(total / pageSize) } } });
 });
 
 // GET /relationships/:id

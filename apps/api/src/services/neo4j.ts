@@ -22,6 +22,6 @@ export { syncRelationships } from './neo4j/syncRelationships';
 // IOC sync (pulses, CVEs, all IOCs, similarity)
 export { syncPulsesAndIOCs, syncCVEs, syncAllIOCs, syncSimilarIOCs } from './neo4j/syncIOCs';
 
-// Full sync orchestrator + web intel + campaigns
-export { syncAllToNeo4j, syncWebIntelToNeo4j, syncCampaignsToNeo4j } from './neo4j/syncAll';
+// Full sync orchestrator
+export { syncAllToNeo4j } from './neo4j/syncAll';
 export type { Neo4jSyncResult } from './neo4j/syncAll';

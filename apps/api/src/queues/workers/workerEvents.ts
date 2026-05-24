@@ -2,7 +2,7 @@ import { emitWebhookEvent, WEBHOOK_EVENTS } from '@rinjani/core/webhooks';
 import { alertsQueue, neo4jSyncQueue, cveEnrichmentQueue } from '../index';
 import { feedSyncWorker, enrichmentWorker } from './feedWorkers';
 import { aiAnalysisWorker, notificationWorker, alertsWorker } from './utilityWorkers';
-import { neo4jSyncWorker, nexusWorker } from './syncWorkers';
+import { neo4jSyncWorker } from './syncWorkers';
 import { cveEnrichmentWorker } from './cveEnrichmentWorker';
 import { retentionWorker } from './retentionWorker';
 import { indexVulnerabilities, indexIOCs, indexActors } from '../../services/opensearch/indexing';
@@ -12,7 +12,7 @@ import { createLogger } from '../../lib/logger';
 // Worker Event Handlers (with Webhook Integration)
 // ============================================================================
 
-const workers = [feedSyncWorker, enrichmentWorker, aiAnalysisWorker, notificationWorker, alertsWorker, neo4jSyncWorker, nexusWorker, cveEnrichmentWorker, retentionWorker];
+const workers = [feedSyncWorker, enrichmentWorker, aiAnalysisWorker, notificationWorker, alertsWorker, neo4jSyncWorker, cveEnrichmentWorker, retentionWorker];
 
 const evtLog = createLogger('WorkerEvents');
 
@@ -221,38 +221,6 @@ neo4jSyncWorker.on('completed', async (job, result) => {
 
 neo4jSyncWorker.on('failed', async (job, err) => {
     evtLog.error('Neo4j sync failed', err, { jobId: job?.id });
-});
-
-// Nexus Worker Events
-nexusWorker.on('completed', async (job, result) => {
-    const type = job.data.type;
-    if (type === 'sync-webset') {
-        evtLog.info('Nexus sync completed', { itemsSynced: result?.itemsSynced, iocsExtracted: result?.iocsExtracted });
-        await alertsQueue.add(`nexus-sync-${job.id}`, {
-            severity: 'low',
-            type: 'ioc_detected',
-            title: `Nexus Sync Complete`,
-            message: `Synced ${result?.itemsSynced || 0} items with ${result?.iocsExtracted || 0} IOCs extracted`,
-            source: 'nexus-intel',
-            metadata: { websetId: job.data.websetId, ...result },
-        });
-    } else if (type === 'persist-scrape') {
-        evtLog.info('Persist-scrape completed', { itemId: result?.itemId });
-        await alertsQueue.add(`scrape-persisted-${job.id}`, {
-            severity: 'info',
-            type: 'system_event',
-            title: `Deep Scrape Intel Saved`,
-            message: `Scrape result saved to intelligence database. Embeddings generated and synced to graph.`,
-            source: 'nexus-scrape',
-            metadata: { itemId: result?.itemId },
-        });
-    } else {
-        evtLog.info('Nexus job completed', { jobId: job.id, type });
-    }
-});
-
-nexusWorker.on('failed', async (job, err) => {
-    evtLog.error('Nexus job failed', err, { jobId: job?.id });
 });
 
 // General error handler for all workers

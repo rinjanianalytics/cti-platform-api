@@ -264,11 +264,24 @@ router.get('/stats/trending-tags', async (c) => {
         LIMIT ${limit}
     `) as unknown as Array<{ tag: string; cnt: number }>;
 
-    const tags = (Array.isArray(rows) ? rows : []).map((r, i) => ({
-        tag: String(r.tag),
-        count: Number(r.cnt),
-        hot: i === 0,
-    }));
+    // A tag is "hot" if it has notable absolute volume AND sits within 70% of
+    // the leader's count. Adapts to the dataset — flat distributions surface
+    // multiple hot tags, dominant leaders mark only the spike. During low-
+    // volume windows nothing is hot (which is honest).
+    const counts = (Array.isArray(rows) ? rows : []).map(r => Number(r.cnt));
+    const top = counts[0] ?? 0;
+    const HOT_MIN_ABS = 100;
+    const HOT_REL_THRESHOLD = 0.7;
+    const hotFloor = Math.max(HOT_MIN_ABS, top * HOT_REL_THRESHOLD);
+
+    const tags = (Array.isArray(rows) ? rows : []).map((r) => {
+        const count = Number(r.cnt);
+        return {
+            tag: String(r.tag),
+            count,
+            hot: count >= hotFloor,
+        };
+    });
 
     return c.json({ success: true, data: tags });
 });

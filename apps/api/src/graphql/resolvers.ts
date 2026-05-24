@@ -20,7 +20,6 @@ import {
 } from '../services/neo4jGraph';
 import {
     findRelatedActors,
-    actorAttribution,
 } from '../services/neo4jGraph';
 
 // Sighting service
@@ -156,22 +155,6 @@ builder.objectField('ThreatActor', 'relatedActors', (t) =>
                 return result.nodes;
             } catch {
                 return null; // Neo4j may not be available
-            }
-        },
-    }),
-);
-
-// ── IOC → Attribution chain (via Neo4j) ──
-builder.objectField('IOC', 'relatedActors', (t) =>
-    t.field({
-        type: 'GraphResultGQL',
-        nullable: true,
-        resolve: async (ioc) => {
-            try {
-                const result = await actorAttribution(ioc.value, 10);
-                return { nodes: result.nodes, edges: result.edges };
-            } catch {
-                return null;
             }
         },
     }),

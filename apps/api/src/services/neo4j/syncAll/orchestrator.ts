@@ -9,8 +9,6 @@ import neo4j from 'neo4j-driver';
 import { syncActors, syncTactics, syncTechniques, syncMalware, syncTools } from '../syncEntities';
 import { syncRelationships } from '../syncRelationships';
 import { syncPulsesAndIOCs, syncAllIOCs, syncCVEs, syncSimilarIOCs } from '../syncIOCs';
-import { syncWebIntelToNeo4j } from './webIntelSync';
-import { syncCampaignsToNeo4j } from './campaignSync';
 import { createLogger } from '../../../lib/logger';
 
 const log = createLogger('Neo4j');
@@ -25,8 +23,6 @@ export interface Neo4jSyncResult {
     pulses: number;
     iocs: number;
     cves: number;
-    webSources: number;
-    campaigns: number;
     totalNodes: number;
     totalEdges: number;
     durationMs: number;
@@ -62,30 +58,11 @@ export async function syncAllToNeo4j(
     const { pulses: pulseCount, iocs: iocCount, links: linkCount } = await syncPulsesAndIOCs(500, 50);
     onProgress?.(80);
 
-    // Sync ALL IOCs (not just pulse-linked) so campaign detection works
     const allIocCount = await syncAllIOCs(5000);
     onProgress?.(88);
 
     const cveCount = await syncCVEs(500);
-    onProgress?.(90);
-
-    let webSourceCount = 0;
-    try {
-        const { sources } = await syncWebIntelToNeo4j(200);
-        webSourceCount = sources;
-    } catch (err) {
-        log.warn('WebSource sync skipped', { error: err });
-    }
     onProgress?.(92);
-
-    let campaignCount = 0;
-    try {
-        const { campaigns: cc } = await syncCampaignsToNeo4j();
-        campaignCount = cc;
-    } catch (err) {
-        log.warn('Campaign sync skipped', { error: err });
-    }
-    onProgress?.(94);
 
     let similarityCount = 0;
     try {
@@ -123,8 +100,6 @@ export async function syncAllToNeo4j(
         pulses: pulseCount,
         iocs: iocCount,
         cves: cveCount,
-        webSources: webSourceCount,
-        campaigns: campaignCount,
         totalNodes,
         totalEdges,
         durationMs: duration,

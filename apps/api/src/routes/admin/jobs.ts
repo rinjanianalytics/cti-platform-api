@@ -133,12 +133,49 @@ router.post('/jobs/neo4j-sync', requireAuth, requireRole('admin', 'analyst'), as
     });
 });
 
-/** POST /jobs/cvss-backfill — Backfill missing CVSS scores from NVD (runs in background) */
+/**
+ * POST /jobs/cvss-backfill — Enqueue a CVSS backfill sweep.
+ *
+ * Delegates to the same work-driven path used by the boot-time backstop:
+ * pushes one job onto the cve-enrichment queue, which the worker drains
+ * using the OSV-first multi-source path (no NVD API key required).
+ *
+ * Previously this called `nvdSync.backfillMissingCvss` directly — that
+ * function was NVD-only, slow, and bailed out entirely when no API key
+ * was configured. The work-driven sweep is strictly better (OSV first,
+ * NVD fallback, observable via /admin/queues/cve-enrichment).
+ */
 router.post('/jobs/cvss-backfill', requireAuth, requireRole('admin'), async (c) => {
-    const { backfillMissingCvss } = await import('../../services/feedSync/nvdSync');
-    // Fire and forget — NVD rate limits make this take minutes
-    backfillMissingCvss().catch(() => { });
-    return c.json({ success: true, data: { status: 'running', message: 'CVSS backfill started in background. Check server logs for progress.' } });
+    const { triggerEnrichmentSweep } = await import('../../services/workListener');
+    const result = await triggerEnrichmentSweep('cve-enrich');
+    return c.json({
+        success: true,
+        data: {
+            status: 'queued',
+            jobId: result.jobId,
+            message: `CVSS enrichment sweep queued (job ${result.jobId}). Tries OSV first, NVD as fallback. Watch /admin/queues/cve-enrichment for progress.`,
+        },
+    });
+});
+
+/**
+ * POST /jobs/ioc-enrich-sweep — Manual sweep of un-enriched IOCs.
+ *
+ * The worker is already work-driven (Postgres NOTIFY → BullMQ); this
+ * endpoint is for draining a historical backlog or kickstarting after
+ * a long outage. Enqueues at most SWEEP_BATCH_LIMIT (100) jobs per call.
+ */
+router.post('/jobs/ioc-enrich-sweep', requireAuth, requireRole('admin'), async (c) => {
+    const { triggerEnrichmentSweep } = await import('../../services/workListener');
+    const result = await triggerEnrichmentSweep('ioc-enrich');
+    return c.json({
+        success: true,
+        data: {
+            status: 'enqueued',
+            enqueued: result.enqueued ?? 0,
+            message: `Enqueued ${result.enqueued ?? 0} IOC enrichment job(s). Workers will drain the queue at the configured concurrency.`,
+        },
+    });
 });
 
 /** POST /jobs/nvd-sync — Run NVD CVE sync directly (bypasses BullMQ worker) */

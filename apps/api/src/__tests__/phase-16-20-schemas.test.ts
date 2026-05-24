@@ -4,56 +4,12 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-    CreateCampaignSchema, UpdateCampaignSchema, CampaignLinkSchema, CampaignFilterSchema,
     CreateCommentSchema, UpdateCommentSchema,
     CreateRetentionPolicySchema, UpdateRetentionPolicySchema,
     UpdateEnrichmentProviderSchema,
 } from '../lib/schemas';
 
-// Phase 16: Campaign Tracking
-describe('CreateCampaignSchema', () => {
-    it('requires name', () => { expect(() => CreateCampaignSchema.parse({})).toThrow(); });
-    it('accepts minimal', () => {
-        const r = CreateCampaignSchema.parse({ name: 'Operation Aurora' });
-        expect(r.status).toBe('active');
-        expect(r.threatLevel).toBe('unknown');
-        expect(r.tlp).toBe('green');
-    });
-    it('accepts full profile', () => {
-        const r = CreateCampaignSchema.parse({
-            name: 'APT29 SolarWinds', status: 'concluded', threatLevel: 'critical',
-            attribution: 'APT29', tags: ['apt29', 'supply-chain'], tlp: 'amber',
-            firstSeen: '2020-01-01T00:00:00Z', lastSeen: '2021-06-01T00:00:00Z',
-        });
-        expect(r.attribution).toBe('APT29');
-    });
-    it('rejects invalid status', () => { expect(() => CreateCampaignSchema.parse({ name: 'x', status: 'invalid' })).toThrow(); });
-});
-
-describe('UpdateCampaignSchema', () => {
-    it('rejects empty', () => { expect(() => UpdateCampaignSchema.parse({})).toThrow(); });
-    it('accepts status change', () => { expect(UpdateCampaignSchema.parse({ status: 'dormant' }).status).toBe('dormant'); });
-});
-
-describe('CampaignLinkSchema', () => {
-    it('requires entityType and entityId', () => { expect(() => CampaignLinkSchema.parse({})).toThrow(); });
-    it('accepts IOC link', () => {
-        const r = CampaignLinkSchema.parse({ entityType: 'ioc', entityId: 'abc', role: 'primary' });
-        expect(r.role).toBe('primary');
-    });
-    it('defaults role to observed', () => {
-        const r = CampaignLinkSchema.parse({ entityType: 'threat-actor', entityId: 'xyz' });
-        expect(r.role).toBe('observed');
-    });
-});
-
-describe('CampaignFilterSchema', () => {
-    it('has defaults', () => {
-        const r = CampaignFilterSchema.parse({});
-        expect(r.page).toBe(1);
-        expect(r.pageSize).toBe(20);
-    });
-});
+// Phase 16: Campaign schemas — removed when Nexus was ripped out.
 
 // Phase 17: Comments
 describe('CreateCommentSchema', () => {

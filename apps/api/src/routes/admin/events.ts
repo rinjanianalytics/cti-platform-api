@@ -23,7 +23,6 @@ interface QueueEventSources {
     notificationEvents: QueueEvents;
     alertsEvents: QueueEvents;
     neo4jSyncEvents: QueueEvents;
-    nexusEvents: QueueEvents;
     getQueueStats: () => Promise<unknown>;
 }
 
@@ -43,7 +42,6 @@ async function getQueueEvents(): Promise<QueueEventSources | null> {
             notificationEvents: mod.notificationEvents,
             alertsEvents: mod.alertsEvents,
             neo4jSyncEvents: mod.neo4jSyncEvents,
-            nexusEvents: mod.nexusEvents,
             getQueueStats: mod.getQueueStats,
         };
     } catch {
@@ -150,7 +148,6 @@ const PIPELINE_QUEUE_NAMES = [
     { name: 'notifications', key: 'notificationEvents' as const, color: '#f59e0b' },
     { name: 'alerts', key: 'alertsEvents' as const, color: '#ef4444' },
     { name: 'neo4j-sync', key: 'neo4jSyncEvents' as const, color: '#06b6d4' },
-    { name: 'nexus-intel', key: 'nexusEvents' as const, color: '#ec4899' },
 ];
 
 router.get('/pipeline-events', async (c) => {

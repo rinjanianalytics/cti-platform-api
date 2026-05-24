@@ -119,13 +119,6 @@ const BUILTIN_FEEDS = [
         authHeader: 'apiKey', authKeyRef: 'CVE_API_KEY', format: 'json' as const,
     },
     {
-        id: 'nexus-websets', name: 'Nexus Websets', source: 'nexus',
-        description: 'Exa Webset real-time intel — custom web crawling for targeted threat intelligence. Requires Exa API key.',
-        cron: '*/15 * * * *', category: 'threat-feeds',
-        requiresApiKey: 'exa',
-        format: 'json' as const,
-    },
-    {
         id: 'all-feeds', name: 'All Feeds Combined', source: 'all',
         description: 'Sync all threat intelligence feeds in a single scheduled run. Comprehensive coverage across all sources.',
         cron: '*/30 * * * *', category: 'threat-feeds',
@@ -266,21 +259,6 @@ const BUILTIN_SERVICES = [
             { key: 'KEYCLOAK_REALM', label: 'Realm', secret: false, placeholder: 'rinjani' },
             { key: 'KEYCLOAK_CLIENT_ID', label: 'Client ID', secret: false, placeholder: 'rinjani-api' },
             { key: 'KEYCLOAK_CLIENT_SECRET', label: 'Client Secret', secret: true, placeholder: '••••••••' },
-        ],
-    },
-    {
-        id: 'meilisearch', name: 'MeiliSearch',
-        envVars: [
-            { key: 'MEILI_URL', label: 'Host URL', secret: false, placeholder: 'http://localhost:7700' },
-            { key: 'MEILI_MASTER_KEY', label: 'Master Key', secret: true, placeholder: '••••••••' },
-        ],
-    },
-    {
-        id: 'n8n', name: 'n8n Workflow Automation',
-        envVars: [
-            { key: 'N8N_URL', label: 'n8n URL', secret: false, placeholder: 'http://localhost:5678' },
-            { key: 'N8N_USER', label: 'Username', secret: false, placeholder: 'admin' },
-            { key: 'N8N_PASSWORD', label: 'Password', secret: true, placeholder: '••••••••' },
         ],
     },
 ];

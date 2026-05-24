@@ -57,15 +57,6 @@ export async function bootServices(): Promise<void> {
         import('./services/keycloak')
             .then(m => m.keycloak.isAvailable().then(ok => ({ name: 'Keycloak', ok })))
             .catch(() => ({ name: 'Keycloak', ok: false })),
-        import('./services/meilisearch')
-            .then(m => m.meiliSearch.isAvailable().then(ok => {
-                if (ok) m.meiliSearch.setupIndex();
-                return { name: 'MeiliSearch', ok };
-            }))
-            .catch(() => ({ name: 'MeiliSearch', ok: false })),
-        import('./services/n8n')
-            .then(m => m.n8nClient.isAvailable().then((ok: boolean) => ({ name: 'n8n', ok })))
-            .catch(() => ({ name: 'n8n', ok: false })),
     ]).then(results => {
         const active = results.filter(r => r.ok).map(r => r.name);
         const skipped = results.filter(r => !r.ok).map(r => r.name);
@@ -129,22 +120,6 @@ export async function bootServices(): Promise<void> {
                 batchSize: 30,
             });
 
-            eventStream.startConsumer({
-                group: 'meili-group',
-                consumer: 'meili-1',
-                streams: ['ioc', 'vuln', 'actor', 'enrichment'],
-                handler: consumers.handleMeiliSync,
-                batchSize: 50,
-            });
-
-            eventStream.startConsumer({
-                group: 'n8n-group',
-                consumer: 'n8n-1',
-                streams: ['ioc', 'enrichment'],
-                handler: consumers.handleN8nNotify,
-                batchSize: 20,
-            });
-
             // Audit trail — capture all entity events for audit_logs table
             eventStream.startConsumer({
                 group: 'audit-group',
@@ -154,7 +129,7 @@ export async function bootServices(): Promise<void> {
                 batchSize: 50,
             });
 
-            log.info('All stream consumers registered (8 groups)');
+            log.info('All stream consumers registered (6 groups)');
         });
     }).catch(err => {
         log.warn('EventStream failed to start', { error: err.message });

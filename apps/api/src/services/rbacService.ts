@@ -201,14 +201,6 @@ const ROUTE_POLICIES: RoutePolicyEntry[] = [
     // ── YARA ──
     { pattern: '/v1/yara/rules', method: 'GET', group: 'YARA', requiredPermissions: ['iocs:read'], requiredRoles: [] },
     { pattern: '/v1/yara/rules', method: 'POST', group: 'YARA', requiredPermissions: ['system:write'], requiredRoles: ['admin'] },
-
-    // ── n8n SOAR ──
-    { pattern: '/v1/n8n/*', method: 'GET', group: 'SOAR (n8n)', requiredPermissions: ['system:read'], requiredRoles: [] },
-    { pattern: '/v1/n8n/trigger/*', method: 'POST', group: 'SOAR (n8n)', requiredPermissions: ['system:write'], requiredRoles: [] },
-
-    // ── MeiliSearch ──
-    { pattern: '/v1/search/instant', method: 'GET', group: 'Search', requiredPermissions: ['search:execute'], requiredRoles: [] },
-    { pattern: '/v1/search/instant/reindex', method: 'POST', group: 'Search', requiredPermissions: ['system:maintenance'], requiredRoles: ['admin'] },
 ];
 
 /** Get all route policies (for the UI access matrix) */

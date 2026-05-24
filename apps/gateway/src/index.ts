@@ -125,7 +125,6 @@ const EXTENSION_TYPE_DEFS = /* GraphQL */ `
         neo4jHealth: JSON
         neo4jStats: JSON
         relatedActors(actor: String!, minShared: Int): JSON
-        campaigns(minSharedIOCs: Int, limit: Int): GraphResult
         enrichIOC(value: String!, sources: [String], refresh: Boolean): JSON
         actorIntelligence(actorId: String!): JSON
         cveIntelligence(cveId: String!): JSON

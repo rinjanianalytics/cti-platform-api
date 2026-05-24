@@ -28,9 +28,6 @@ export * from './audit';
 // AI Analysis Cache
 export * from './aiCache';
 
-// Web Intelligence (Exa)
-export * from './social';
-
 // Sightings (IOC observation tracking)
 export * from './sightings';
 
@@ -54,3 +51,7 @@ export * from './fight';
 
 // MITRE ATLAS (Adversarial Threat Landscape for AI Systems)
 export * from './atlas';
+
+// Admin-editable overrides for scheduled BullMQ jobs
+// NOTE: oauthIdentities lives inside ./users (alongside its parent table).
+export * from './scheduledJobOverrides';

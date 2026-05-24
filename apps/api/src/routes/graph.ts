@@ -21,9 +21,6 @@ import {
     getAttackTree,
     iocPivot,
     findRelatedActors,
-    campaignDetection,
-    sourceInfluence,
-    actorAttribution,
     executeCypher,
 } from '../services/neo4jGraph';
 import { requireAuth, requireRole } from '../middleware/auth';
@@ -101,57 +98,6 @@ graph.get('/related-actors/:actor', async (c) => {
         .parse(c.req.query('minShared'));
 
     const result = await findRelatedActors(actor, minShared);
-    return c.json({
-        success: true,
-        data: result,
-        meta: { requestId: crypto.randomUUID() },
-    });
-});
-
-// =============================================================================
-// GET /graph/campaigns — Campaign detection via IOC clustering
-// =============================================================================
-graph.get('/campaigns', async (c) => {
-    const minShared = z.coerce.number().int().min(1).max(100).default(2)
-        .parse(c.req.query('minSharedIOCs'));
-    const { limit } = LimitSchema.extend({
-        limit: z.coerce.number().int().min(1).max(100).default(20),
-    }).parse(c.req.query());
-
-    const result = await campaignDetection(minShared, limit);
-    return c.json({
-        success: true,
-        data: result,
-        meta: { requestId: crypto.randomUUID() },
-    });
-});
-
-// =============================================================================
-// GET /graph/source-influence — Rank web sources by intel contribution
-// =============================================================================
-graph.get('/source-influence', async (c) => {
-    const { limit } = LimitSchema.extend({
-        limit: z.coerce.number().int().min(1).max(100).default(20),
-    }).parse(c.req.query());
-
-    const result = await sourceInfluence(limit);
-    return c.json({
-        success: true,
-        data: result,
-        meta: { requestId: crypto.randomUUID() },
-    });
-});
-
-// =============================================================================
-// GET /graph/attribution/:ioc — IOC → WebSource → Actor attribution
-// =============================================================================
-graph.get('/attribution/:ioc', async (c) => {
-    const iocValue = decodeURIComponent(c.req.param('ioc'));
-    const { limit: maxChains } = LimitSchema.extend({
-        limit: z.coerce.number().int().min(1).max(100).default(20),
-    }).parse(c.req.query());
-
-    const result = await actorAttribution(iocValue, maxChains);
     return c.json({
         success: true,
         data: result,

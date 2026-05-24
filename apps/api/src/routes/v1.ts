@@ -34,8 +34,6 @@ import configRoutes from './v1/config';
 import batchRoutes from './v1/batch';
 import stixPipeline from './v1/stixPipeline';
 import yaraRoutes from './v1/yara';
-import meiliRoutes from './v1/meili';
-import n8nRoutes from './v1/n8n';
 import taxonomyRoutes from './v1/taxonomies';
 import exportEnhancedRoutes from './v1/exportEnhanced';
 import caseRoutes from './v1/cases';
@@ -45,7 +43,6 @@ import watchlistRoutes from './v1/watchlists';
 import scheduledReportRoutes from './v1/scheduled-reports';
 import relationshipRoutes from './v1/relationships';
 import landscapeRoutes from './v1/landscape';
-import campaignRoutes from './v1/campaigns';
 import commentRoutes from './v1/comments';
 import retentionRoutes from './v1/retention';
 import enrichmentProviderRoutes from './v1/enrichment-providers';
@@ -82,7 +79,6 @@ v1.get('/', (c) => {
             yara: '/v1/yara',
             stix: '/v1/stix',
             instantSearch: '/v1/search/instant',
-            n8n: '/v1/n8n',
             fight: '/v1/fight',
             atlas: '/v1/atlas',
             taxonomies: '/v1/taxonomies',
@@ -96,7 +92,6 @@ v1.get('/', (c) => {
             reports: '/v1/reports',
             relationships: '/v1/relationships',
             landscape: '/v1/landscape',
-            campaigns: '/v1/campaigns',
             comments: '/v1/comments',
             retention: '/v1/retention',
             enrichmentProviders: '/v1/enrichment-providers',
@@ -137,8 +132,6 @@ v1.route('/', configRoutes);                 // Config management (feeds, API ke
 v1.route('/', batchRoutes);                  // Batch operations (bulk update/delete/tag)
 v1.route('/', stixPipeline);                 // STIX 2.1 import/export/validate
 v1.route('/', yaraRoutes);                   // YARA rule matching engine
-v1.route('/', meiliRoutes);                  // MeiliSearch instant search
-v1.route('/', n8nRoutes);                    // n8n SOAR automation
 v1.route('/', taxonomyRoutes);               // Taxonomy & tag namespace system
 v1.route('/', exportEnhancedRoutes);         // Enhanced export (MISP, Suricata, reports)
 v1.route('/', caseRoutes);                   // Case / investigation management
@@ -148,7 +141,6 @@ v1.route('/', watchlistRoutes);              // IOC watchlists
 v1.route('/', scheduledReportRoutes);        // Scheduled intelligence reports
 v1.route('/', relationshipRoutes);           // Entity relationship management
 v1.route('/', landscapeRoutes);              // Threat landscape metrics
-v1.route('/', campaignRoutes);               // Campaign tracking
 v1.route('/', commentRoutes);                // Entity comments & annotations
 v1.route('/', retentionRoutes);              // Data retention policies
 v1.route('/', enrichmentProviderRoutes);     // Enrichment provider management

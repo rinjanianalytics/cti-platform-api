@@ -424,7 +424,7 @@ analyzers.get('/analyzers/history', async (c) => {
         success: true,
         data: {
             items: items.rows || [],
-            pagination: { page, pageSize: limit, total, totalPages: Math.ceil(total / limit) },
+            pagination: { page, pageSize: limit, total, pages: Math.ceil(total / limit) },
         },
     });
 });

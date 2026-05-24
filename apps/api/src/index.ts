@@ -33,8 +33,6 @@ import usersRouter from './routes/users';
 import adminRouter from './routes/admin';
 import alertsRouter from './routes/alerts';
 import opsRouter from './routes/ops';
-import nexusRoutes from './routes/nexus';
-import webSearchRoutes from './routes/webSearch';
 import streamRoutes from './routes/streaming';
 import taxiiRouter from './routes/taxii';
 import sseRouter from './routes/sse';
@@ -131,8 +129,6 @@ app.route('/v1/notifications', notificationsRouter);
 app.route('/v1/users', usersRouter);
 app.route('/v1/alerts', alertsRouter);
 app.route('/v1/ops', opsRouter);
-app.route('/v2/nexus', nexusRoutes);
-app.route('/v1/web-search', webSearchRoutes);
 app.route('/v2/stream', streamRoutes);
 
 // TAXII 2.1 server (OASIS standard for intelligence sharing)
@@ -173,7 +169,7 @@ if (isStandalone) {
 
     const port = parseInt(process.env.PORT || '3001', 10);
 
-    log.info(`RinjaniAnalytics CTI API v1.0.0 starting`, { port, endpoints: { health: `/health`, v1: `/v1`, v2: `/v2`, docs: `/api-docs`, queues: `/admin/queues` } });
+    log.info(`RinjaniAnalytics CTI API v1.0.0 starting`, { port, endpoints: { health: `/health`, v1: `/v1`, v2: `/v2`, docs: `/api-docs`, graphql: `/graphql`, queues: `/admin/queues` } });
 
     serve({
         fetch: app.fetch,

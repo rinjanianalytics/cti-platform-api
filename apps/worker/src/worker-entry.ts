@@ -24,11 +24,18 @@ import './boot-env.js';
 // to coordinate startup and graceful shutdown.
 import { startWorkers, stopWorkers } from '../../api/src/queues/workers/workerEvents.js';
 
-// Web search worker (queue-driven scraping pipeline)
-import '../../api/src/queues/webSearchWorker.js';
-
 // Scheduled jobs (cron-like repeatable BullMQ jobs)
 import { setupScheduledJobs } from '../../api/src/queues/scheduler.js';
+
+// Work-driven enrichment dispatcher (PG NOTIFY → BullMQ).
+// Replaces the daily cron wake-up for CVE enrichment: the worker fires
+// whenever a row lands that needs enrichment. Includes a boot-time
+// backstop sweep to catch anything missed during downtime.
+import {
+    startWorkListener,
+    stopWorkListener,
+    triggerEnrichmentSweep,
+} from '../../api/src/services/workListener.js';
 
 // Redis connection for graceful shutdown
 import { shutdownRedis } from '../../api/src/services/redis.js';
@@ -55,9 +62,8 @@ async function main() {
 ╔═══════════════════════════════════════════════════════════╗
 ║         V3 Worker Process (Standalone)                    ║
 ╠═══════════════════════════════════════════════════════════╣
-║  BullMQ Workers:  10 (feed-sync, enrichment, AI, Neo4j,  ║
-║                   nexus, CVE, notifications, alerts,      ║
-║                   retention, web-search)                   ║
+║  BullMQ Workers:  8 (feed-sync, enrichment, AI, Neo4j,    ║
+║                   CVE, notifications, alerts, retention)  ║
 ║  Feed Sync:       ${ENABLE_FEED_SYNC ? 'Enabled' : 'Disabled'} (${FEED_COUNT} feeds)${' '.repeat(Math.max(0, 23 - (ENABLE_FEED_SYNC ? 'Enabled' : 'Disabled').length - String(FEED_COUNT).length))}║
 ║  Scheduled Jobs:  cron-based repeatable jobs              ║
 ╚═══════════════════════════════════════════════════════════╝
@@ -77,6 +83,24 @@ async function main() {
         console.log('[Worker] ✅ Scheduled jobs configured');
     } catch (err) {
         console.warn('[Worker] ⚠️ Scheduled jobs setup failed:', (err as Error).message);
+    }
+
+    // 2b. Start the work-driven enrichment listener + one-shot backstop
+    //     sweeps. The listener subscribes to Postgres NOTIFYs on the
+    //     `rinjani_work` channel; the sweeps catch any rows that landed
+    //     while the worker was offline.
+    console.log('[Worker] Starting work-driven enrichment listener...');
+    try {
+        await startWorkListener();
+        console.log('[Worker] ✅ Work listener active');
+
+        const cveSweep = await triggerEnrichmentSweep('cve-enrich');
+        console.log(`[Worker] ✅ Backstop CVE-enrich sweep queued (job ${cveSweep.jobId})`);
+
+        const iocSweep = await triggerEnrichmentSweep('ioc-enrich');
+        console.log(`[Worker] ✅ Backstop IOC-enrich sweep enqueued ${iocSweep.enqueued} row(s)`);
+    } catch (err) {
+        console.warn('[Worker] ⚠️ Work listener setup failed:', (err as Error).message);
     }
 
     // 3. Start feed sync daemon (if enabled)
@@ -112,6 +136,7 @@ async function main() {
         console.log(`[Worker] Received ${signal}, shutting down gracefully...`);
         await Promise.allSettled([
             stopWorkers(),
+            stopWorkListener(),
             shutdownRedis(),
         ]);
         console.log('[Worker] All workers stopped, exiting');

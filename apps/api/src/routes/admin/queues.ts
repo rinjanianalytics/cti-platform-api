@@ -16,8 +16,6 @@ import {
     notificationQueue,
     alertsQueue,
     neo4jSyncQueue,
-    nexusQueue,
-    webSearchQueue,
     cveEnrichmentQueue,
     maintenanceQueue,
     allQueues,
@@ -41,8 +39,6 @@ const queueMap: Record<string, Queue> = {
     'notifications': notificationQueue,
     'alerts': alertsQueue,
     'neo4j-sync': neo4jSyncQueue,
-    'nexus-intel': nexusQueue,
-    'web-search': webSearchQueue,
     'cve-enrichment': cveEnrichmentQueue,
     'maintenance': maintenanceQueue,
 };
@@ -201,6 +197,75 @@ router.delete('/queue/:name/job/:jobId', requireAuth, requireRole('admin'), asyn
     return c.json({
         success: true,
         data: { queue: queue.name, jobId, action: 'removed' },
+    });
+});
+
+/** POST /queue/:name/job/:jobId/retry — Retry a single failed job */
+router.post('/queue/:name/job/:jobId/retry', requireAuth, requireRole('admin'), async (c) => {
+    const queue = getQueue(c.req.param('name'));
+    const jobId = c.req.param('jobId');
+
+    const job = await queue.getJob(jobId);
+    if (!job) throw new NotFoundError('Job', jobId);
+
+    await job.retry();
+
+    return c.json({
+        success: true,
+        data: { queue: queue.name, jobId, action: 'retried' },
+    });
+});
+
+/**
+ * POST /queue/:name/job/:jobId/promote — Force a delayed job to run now.
+ *
+ * Calls BullMQ's `job.promote()`, which moves the job from delayed to
+ * waiting so the next available worker picks it up immediately. The
+ * job's original schedule (if it's a repeatable) is unaffected — only
+ * this one delayed instance is promoted.
+ */
+router.post('/queue/:name/job/:jobId/promote', requireAuth, requireRole('admin'), async (c) => {
+    const queue = getQueue(c.req.param('name'));
+    const jobId = c.req.param('jobId');
+
+    const job = await queue.getJob(jobId);
+    if (!job) throw new NotFoundError('Job', jobId);
+
+    await job.promote();
+
+    return c.json({
+        success: true,
+        data: { queue: queue.name, jobId, action: 'promoted' },
+    });
+});
+
+/** GET /queue/:name/job/:jobId — Fetch one job's detail (any queue) */
+router.get('/queue/:name/job/:jobId', requireAuth, async (c) => {
+    const queue = getQueue(c.req.param('name'));
+    const jobId = c.req.param('jobId');
+
+    const job = await queue.getJob(jobId);
+    if (!job) throw new NotFoundError('Job', jobId);
+
+    const state = await job.getState();
+
+    return c.json({
+        success: true,
+        data: {
+            id: job.id,
+            name: job.name,
+            queue: queue.name,
+            state,
+            progress: job.progress,
+            data: job.data,
+            result: job.returnvalue,
+            failedReason: job.failedReason || null,
+            stacktrace: job.stacktrace || null,
+            attemptsMade: job.attemptsMade,
+            timestamp: job.timestamp,
+            processedOn: job.processedOn || null,
+            finishedOn: job.finishedOn || null,
+        },
     });
 });
 

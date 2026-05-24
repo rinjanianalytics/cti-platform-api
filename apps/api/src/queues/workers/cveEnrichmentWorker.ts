@@ -14,6 +14,7 @@ import { connection } from '../../services/redis';
 import { and, db, eq, isNull } from '@rinjani/db';
 import { vulnerabilities } from '@rinjani/db/schema';
 import { createLogger } from '../../lib/logger';
+import { fetchFromOsv, type CveEnrichmentData } from '../../services/osvClient';
 
 export interface CVEEnrichmentJobData {
     type: 'cvss' | 'dates' | 'all';
@@ -34,11 +35,28 @@ interface NVDMetrics {
     cvssMetricV2?: Array<{ cvssData: { baseScore: number; vectorString: string } }>;
 }
 
-async function fetchCVEData(cveId: string): Promise<{
-    cvss?: { score: number; severity: string; vector: string };
-    published?: Date;
-    lastModified?: Date;
-} | null> {
+/**
+ * NVD-only fetch — used as fallback when OSV doesn't have the CVE.
+ *
+ * NVD covers everything (including proprietary vendors OSV doesn't
+ * index) but is rate-limited: ~5 req/30s without an API key, ~50 req/30s
+ * with one. Cloudflare gates the API-key signup, so this is the slow
+ * path. OSV (no rate limit, no auth) is the primary path.
+ *
+ * Per-call throttle is enforced inside this function via the module-
+ * level `nextNvdCallAt` watermark. Sleeping here (rather than in the
+ * worker loop) means OSV calls aren't artificially slowed down — a
+ * sweep that finds every CVE in OSV finishes at OSV's full speed.
+ */
+let nextNvdCallAt = 0;
+
+async function fetchFromNvd(cveId: string): Promise<CveEnrichmentData | null> {
+    const now = Date.now();
+    if (now < nextNvdCallAt) {
+        await new Promise(r => setTimeout(r, nextNvdCallAt - now));
+    }
+    nextNvdCallAt = Date.now() + RATE_LIMIT_MS;
+
     try {
         const url = new URL(NVD_BASE_URL);
         url.searchParams.append('cveId', cveId);
@@ -55,8 +73,8 @@ async function fetchCVEData(cveId: string): Promise<{
         const cve = data.vulnerabilities[0].cve;
         const metrics: NVDMetrics = cve.metrics || {};
 
-        // Extract CVSS
-        let cvss: { score: number; severity: string; vector: string } | undefined;
+        // Extract CVSS — prefer v3.1 > v3.0 > v2
+        let cvss: CveEnrichmentData['cvss'] | undefined;
         if (metrics.cvssMetricV31?.[0]) {
             const d = metrics.cvssMetricV31[0].cvssData;
             cvss = { score: d.baseScore, severity: d.baseSeverity.toLowerCase(), vector: d.vectorString };
@@ -74,10 +92,31 @@ async function fetchCVEData(cveId: string): Promise<{
             cvss,
             published: cve.published ? new Date(cve.published) : undefined,
             lastModified: cve.lastModified ? new Date(cve.lastModified) : undefined,
+            source: 'nvd',
         };
     } catch {
         return null;
     }
+}
+
+/**
+ * Multi-source CVE lookup: OSV first (no auth, no rate limit), NVD if
+ * OSV doesn't know the CVE or didn't return a numeric CVSS score.
+ *
+ * Returns null only if both sources fail.
+ */
+async function fetchCVEData(cveId: string): Promise<CveEnrichmentData | null> {
+    const osv = await fetchFromOsv(cveId);
+    // OSV has the CVE *and* gave us a numeric CVSS → use it directly.
+    if (osv?.cvss) return osv;
+
+    // OSV didn't have it (or only had v2 / no severity) — fall back to NVD.
+    const nvd = await fetchFromNvd(cveId);
+    if (nvd?.cvss) return nvd;
+
+    // Last resort: return whatever metadata either source gave us so
+    // dates can still be populated even without a score.
+    return osv ?? nvd ?? null;
 }
 
 // ============================================================================
@@ -130,7 +169,8 @@ async function enrichCVSS(log: ReturnType<typeof createLogger>, batchSize: numbe
             enriched++;
             log.debug('CVSS enriched', { cveId: vuln.cveId, score: data.cvss.score });
         }
-        await new Promise(r => setTimeout(r, RATE_LIMIT_MS));
+        // Throttling is now enforced inside fetchFromNvd() — only NVD
+        // calls wait, OSV calls run at full speed.
     }
 
     return enriched;
@@ -166,7 +206,8 @@ async function enrichDates(log: ReturnType<typeof createLogger>, batchSize: numb
             enriched++;
             log.debug('Date enriched', { cveId: vuln.cveId });
         }
-        await new Promise(r => setTimeout(r, RATE_LIMIT_MS));
+        // Throttling is now enforced inside fetchFromNvd() — only NVD
+        // calls wait, OSV calls run at full speed.
     }
 
     return enriched;
@@ -215,6 +256,18 @@ export const cveEnrichmentWorker = new Worker<CVEEnrichmentJobData>(
     },
     {
         connection,
-        concurrency: 1, // Only one enrichment at a time (rate limiting)
+        concurrency: 1, // One enrichment at a time — NVD rate limits per IP
+        // CVE enrichment is long-running by design (NVD allows ~700ms/call
+        // *with* an API key; ~6500ms/call without). A batch of 50 takes
+        // 35s–5min depending on whether `CVE_API_KEY` is set, so the
+        // default 30s lockDuration trips "job stalled" routinely.
+        //
+        // 10 minutes covers worst-case (no API key + full batch); the lock
+        // is renewed every 5 minutes as long as the event loop is
+        // responsive. maxStalledCount: 3 means a worker restart mid-job
+        // doesn't permanently fail the job — it'll be retried.
+        lockDuration: 10 * 60 * 1000,       // 10 minutes
+        lockRenewTime: 5 * 60 * 1000,       // 5 minutes (must be < lockDuration)
+        maxStalledCount: 3,                 // retry stalled jobs 3 times before final fail
     }
 );

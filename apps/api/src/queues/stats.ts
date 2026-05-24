@@ -4,7 +4,7 @@
 
 import {
     feedSyncQueue, enrichmentQueue, aiAnalysisQueue, notificationQueue,
-    alertsQueue, neo4jSyncQueue, nexusQueue, webSearchQueue, cveEnrichmentQueue,
+    alertsQueue, neo4jSyncQueue, cveEnrichmentQueue,
     maintenanceQueue,
 } from './definitions';
 
@@ -15,8 +15,6 @@ export const allQueues = [
     notificationQueue,
     alertsQueue,
     neo4jSyncQueue,
-    nexusQueue,
-    webSearchQueue,
     cveEnrichmentQueue,
     maintenanceQueue,
 ];

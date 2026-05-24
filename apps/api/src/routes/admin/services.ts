@@ -32,6 +32,7 @@ router.get('/services', async (c) => {
         bootlock,
         feedHealth,
         optionalServices,
+        enrichmentSources,
     ] = await Promise.all([
         probePostgres(),
         probeOpenSearch(),
@@ -42,6 +43,7 @@ router.get('/services', async (c) => {
         getBootLockOwner().catch(() => ({ owner: null, self: '?', isUs: false })),
         probeFeedHealth(),
         probeOptionalServices(),
+        probeEnrichmentSources(),
     ]);
 
     const llm = {
@@ -74,6 +76,7 @@ router.get('/services', async (c) => {
             },
             llm,
             optionalServices,
+            enrichmentSources,
             queues: queueStats,
             feeds: feedHealth,
             timestamp: new Date().toISOString(),
@@ -204,8 +207,6 @@ async function probeOptionalServices(): Promise<Record<string, { available: bool
     const probes: Array<[string, () => Promise<boolean>]> = [
         ['vault',       async () => (await import('../../services/vault')).secrets.isAvailable()],
         ['keycloak',    async () => (await import('../../services/keycloak')).keycloak.isAvailable()],
-        ['meilisearch', async () => (await import('../../services/meilisearch')).meiliSearch.isAvailable()],
-        ['n8n',         async () => (await import('../../services/n8n')).n8nClient.isAvailable()],
     ];
 
     const out: Record<string, { available: boolean; configured: boolean }> = {};
@@ -218,6 +219,75 @@ async function probeOptionalServices(): Promise<Record<string, { available: bool
         }
     }));
     return out;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Enrichment sources — primary (OSV) + fallback (NVD).                       */
+/* These are first-class services in the CVE enrichment pipeline, not         */
+/* generic "optional" integrations. The dashboard renders them in their       */
+/* own card.                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export interface EnrichmentSourceProbe {
+    available: boolean;
+    configured: boolean;
+    latencyMs?: number;
+    /** Optional human-readable note, e.g. "no API key — 5 req/30s limit". */
+    note?: string;
+    error?: string;
+}
+
+async function probeEnrichmentSources(): Promise<Record<string, EnrichmentSourceProbe>> {
+    return {
+        osv: await probeOsv(),
+        nvd: probeNvdConfig(),  // sync — no active API hit (rate-limit pressure)
+    };
+}
+
+/**
+ * Probe OSV by fetching a well-known CVE (log4shell). OSV is public, no auth,
+ * no rate limit — a 5s timeout is plenty.
+ */
+async function probeOsv(): Promise<EnrichmentSourceProbe> {
+    const t0 = Date.now();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5_000);
+    try {
+        const res = await fetch('https://api.osv.dev/v1/vulns/CVE-2021-44228', {
+            signal: ctrl.signal,
+            headers: { 'Accept': 'application/json' },
+        });
+        return {
+            available: res.ok,
+            configured: true,                 // OSV requires no configuration
+            latencyMs: Date.now() - t0,
+            ...(res.ok ? {} : { error: `HTTP ${res.status}` }),
+        };
+    } catch (err) {
+        return {
+            available: false,
+            configured: true,
+            error: (err as Error).message,
+        };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
+ * NVD is *always* reachable without a key (just slow). We don't actively
+ * probe to avoid burning rate-limit budget — instead we report key
+ * presence and a note about the consequence.
+ */
+function probeNvdConfig(): EnrichmentSourceProbe {
+    const hasKey = !!(process.env.CVE_API_KEY || process.env.NVD_API_KEY);
+    return {
+        available: true,
+        configured: hasKey,
+        note: hasKey
+            ? '50 req/30s with API key'
+            : 'no API key — 5 req/30s limit, used as OSV fallback',
+    };
 }
 
 export default router;

@@ -7,18 +7,22 @@
  */
 
 import { db } from '@rinjani/db';
-import { auditLogs } from '@rinjani/db/schema';
+import { auditLogs, auditActionEnum, entityTypeEnum } from '@rinjani/db/schema';
 import type { NewAuditLog } from '@rinjani/db/schema';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('AuditService');
 
-// Valid enum values (must match pgEnum definitions in schema/audit.ts)
-const VALID_ENTITY_TYPES = ['ioc', 'vulnerability', 'threat_actor', 'pulse', 'indicator', 'malware', 'user'] as const;
-const VALID_ACTIONS = ['create', 'update', 'delete', 'merge', 'enrich'] as const;
+// The Drizzle pgEnum is the single source of truth — TS allow-lists and
+// types derive from `.enumValues`. Adding a new audit-action or entity-type
+// happens in exactly one place (schema/audit.ts + a migration) and
+// auto-propagates here. We previously hit silent insert-failures when this
+// list drifted from the DB enum; deriving prevents that class of bug.
+const VALID_ENTITY_TYPES = entityTypeEnum.enumValues;
+const VALID_ACTIONS = auditActionEnum.enumValues;
 
-type EntityType = typeof VALID_ENTITY_TYPES[number];
-type AuditAction = typeof VALID_ACTIONS[number];
+type EntityType = typeof entityTypeEnum.enumValues[number];
+type AuditAction = typeof auditActionEnum.enumValues[number];
 
 export interface AuditLogInput {
     entityType: EntityType;

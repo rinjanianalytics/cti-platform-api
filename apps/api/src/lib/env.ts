@@ -41,8 +41,6 @@ const EnvSchema = z.object({
 
     // ── Optional services (warn if missing) ─────────────────────────────
     OPENAI_API_KEY: z.string().optional(),
-    MEILI_URL: z.string().optional(),
-    MEILI_MASTER_KEY: z.string().optional(),
     NEO4J_URI: z.string().optional(),
     NEO4J_USER: z.string().optional(),
     NEO4J_PASSWORD: z.string().optional(),

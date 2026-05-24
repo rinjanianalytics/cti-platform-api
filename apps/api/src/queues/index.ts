@@ -12,20 +12,20 @@
 export type {
     FeedSyncJobData, EnrichmentJobData, AIAnalysisJobData,
     NotificationJobData, AlertJobData, Neo4jSyncJobData,
-    WebSearchJobData, NexusJobData, CVEEnrichmentJobData,
+    CVEEnrichmentJobData,
 } from './types';
 
 // Queue instances
 export {
     feedSyncQueue, enrichmentQueue, aiAnalysisQueue, notificationQueue,
-    alertsQueue, neo4jSyncQueue, nexusQueue, webSearchQueue, cveEnrichmentQueue,
+    alertsQueue, neo4jSyncQueue, cveEnrichmentQueue,
     maintenanceQueue,
 } from './definitions';
 
 // Events
 export {
     feedSyncEvents, enrichmentEvents, aiAnalysisEvents, notificationEvents,
-    alertsEvents, neo4jSyncEvents, nexusEvents, webSearchEvents, cveEnrichmentEvents,
+    alertsEvents, neo4jSyncEvents, cveEnrichmentEvents,
 } from './events';
 
 // Registry & stats

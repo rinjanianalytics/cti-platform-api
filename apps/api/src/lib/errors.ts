@@ -40,13 +40,21 @@ export class AppError extends Error {
         Error.captureStackTrace?.(this, this.constructor);
     }
 
-    /** Serialize for JSON logging / API responses */
+    /**
+     * Serialize for JSON logging / API responses.
+     *
+     * Returns the canonical inner-error shape used by `middleware/error.ts`
+     * — `{code, message, details?}`. Previously emitted `{error: code, ...}`
+     * which forced the client to branch on `typeof error === 'string'` vs.
+     * object. All error paths (AppError, ZodError, HTTPException,
+     * unhandled) now produce the same inner shape.
+     */
     toJSON() {
         return {
-            error: this.code,
+            code: this.code,
             message: this.message,
             statusCode: this.statusCode,
-            ...(this.context ? { context: this.context } : {}),
+            ...(this.context ? { details: this.context } : {}),
         };
     }
 }

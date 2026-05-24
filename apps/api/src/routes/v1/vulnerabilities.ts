@@ -12,6 +12,7 @@ import { createLogger } from '../../lib/logger';
 import { NotFoundError } from '../../lib/errors';
 import { VulnFilterSchema } from '../../lib/schemas';
 import { paginate } from './helpers';
+import { toVulnDTO } from '../../dto';
 import { parseCursorParams, buildCursorResponse } from '../../lib/pagination';
 import { escSql } from '../../lib/sanitize';
 
@@ -39,15 +40,16 @@ router.get('/vulnerabilities', async (c) => {
         aggregations: true,
     });
 
-    // Map OpenSearch fields to frontend-expected names for vulnerabilities
-    const mappedItems = result.items.map((item: Record<string, unknown>) => ({
-        ...item,
-        cveId: item.value,  // Frontend expects cveId
-        publishedDate: item.createdAt || item.updatedAt,
-        vendorProject: item.vendorProject || '',
-        product: item.product || '',
-        isExploited: item.isExploited || false,
-    }));
+    // OpenSearch stores cve under `value`; remap to `cveId` so the DTO
+    // can pick the canonical field, then coerce the row's types
+    // (cvssScore string→number, dates→ISO) in one place.
+    const mappedItems = result.items.map((item: Record<string, unknown>) =>
+        toVulnDTO({
+            ...item,
+            cveId: item.cveId ?? item.value,
+            publishedDate: item.publishedDate ?? item.createdAt ?? item.updatedAt,
+        }),
+    );
 
     return c.json({
         success: true,
@@ -84,22 +86,13 @@ router.get('/vulnerabilities/cursor', async (c) => {
          LIMIT ${limit + 1}`
     );
 
-    const rows = (result.rows || []).map((row: Record<string, unknown>) => ({
-        ...row,
-        cveId: row.cve_id,
-        cvssScore: row.cvss_score,
-        vendorProject: row.vendor_project,
-        isExploited: row.is_exploited,
-        publishedDate: row.published_date,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-    }));
+    const rows = (result.rows || []).map((row: Record<string, unknown>) => toVulnDTO(row));
 
     if (direction === 'prev') rows.reverse();
 
-    const response = buildCursorResponse(rows, limit, (row: Record<string, unknown>) => ({
-        timestamp: String(row.updated_at || row.created_at || ''),
-        id: String(row.id || ''),
+    const response = buildCursorResponse(rows, limit, (row) => ({
+        timestamp: String(row.updatedAt ?? row.createdAt ?? ''),
+        id: String(row.id ?? ''),
     }));
 
     return c.json({ success: true, ...response });
@@ -145,14 +138,18 @@ router.get('/vulnerabilities/:cveId', async (c) => {
         }
     }
 
-    // Map OpenSearch fields to frontend-expected field names
+    // DTO owns the canonical shape; the route adds the PG-recovered
+    // vendor/product and preserves the raw OpenSearch document for the
+    // detail page's diagnostic panel.
     const mappedData = {
-        ...item,
-        cveId: item.value,  // Frontend expects cveId, OpenSearch has value
-        publishedDate: item.createdAt || item.updatedAt,  // Use createdAt as publishedDate
-        vendorProject,
-        product,
-        isExploited: item.isExploited || false,
+        ...toVulnDTO({
+            ...item,
+            cveId: item.cveId ?? item.value,
+            publishedDate: item.publishedDate ?? item.createdAt ?? item.updatedAt,
+            vendorProject,
+            product,
+        }),
+        rawData: (item.rawData ?? null) as Record<string, unknown> | null,
     };
 
     return c.json({ success: true, data: mappedData, took: result.took });
@@ -245,7 +242,7 @@ router.post('/vulnerabilities/:id/link', requireAuth, requireRole('admin', 'anal
 // CVSS Enrichment from NVD
 // ============================================================================
 
-import { enrichVulnerability, fetchCvssFromNvd } from '../../services/vulnerabilityEnrichment';
+import { enrichVulnerability, fetchCvss } from '../../services/vulnerabilityEnrichment';
 
 /**
  * POST /v1/vulnerabilities/:cveId/enrich — fetch CVSS from NVD for one CVE.
@@ -294,9 +291,11 @@ router.post('/vulnerabilities/enrich/bulk', requireAuth, requireRole('admin'), a
     const errors: Array<{ cveId: string; error: string }> = [];
 
     for (const row of candidates) {
+        let sourceUsed: 'osv' | 'nvd' | null = null;
         try {
-            const r = await fetchCvssFromNvd(row.cveId);
+            const r = await fetchCvss(row.cveId);
             if (!r) { notFound++; continue; }
+            sourceUsed = r.source;
             await db.update(vulnerabilities)
                 .set({
                     cvssScore: r.score.toString(),
@@ -309,8 +308,12 @@ router.post('/vulnerabilities/enrich/bulk', requireAuth, requireRole('admin'), a
         } catch (err) {
             errors.push({ cveId: row.cveId, error: (err as Error).message });
         }
-        // Soft rate-limit — NVD without key allows ~5 req/30s.
-        await new Promise(r => setTimeout(r, NVD_API_KEY_PRESENT ? 200 : 6500));
+        // Only throttle when NVD was the source — OSV has no rate limit
+        // so an OSV-served batch can rip through in seconds. If `null`
+        // (both sources failed), assume NVD was tried and throttle.
+        if (sourceUsed !== 'osv') {
+            await new Promise(r => setTimeout(r, NVD_API_KEY_PRESENT ? 200 : 6500));
+        }
     }
 
     return c.json({

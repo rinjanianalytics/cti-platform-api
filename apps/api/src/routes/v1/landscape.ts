@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import { rawQuery, sql } from '@rinjani/db';
 import { requireAuth } from '../../middleware/auth';
 import { LandscapeQuerySchema } from '../../lib/schemas';
+import { toLandscapeOverview } from '../../dto';
 
 const router = new Hono();
 router.use('*', requireAuth);
@@ -35,15 +36,15 @@ router.get('/landscape/overview', async (c) => {
 
     return c.json({
         success: true,
-        data: {
+        data: toLandscapeOverview({
             period,
-            iocs: { ...(iocStats.rows?.[0] as Record<string, unknown>), avgScore: Math.round(Number((iocStats.rows?.[0] as Record<string, unknown>)?.avg_score || 0)) },
-            vulnerabilities: vulnStats.rows?.[0] || {},
-            notifications: notifCount.rows?.[0] || {},
-            iocTypeDistribution: iocTypes.rows || [],
-            topSources: topSources.rows || [],
-            severityDistribution: severityDist.rows || [],
-        },
+            iocStats: iocStats.rows?.[0] as Record<string, unknown> | undefined,
+            vulnStats: vulnStats.rows?.[0] as Record<string, unknown> | undefined,
+            notifCount: notifCount.rows?.[0] as Record<string, unknown> | undefined,
+            iocTypes: (iocTypes.rows ?? []) as Record<string, unknown>[],
+            topSources: (topSources.rows ?? []) as Record<string, unknown>[],
+            severityDist: (severityDist.rows ?? []) as Record<string, unknown>[],
+        }),
     });
 });
 

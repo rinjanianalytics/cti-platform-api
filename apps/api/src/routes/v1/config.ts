@@ -165,7 +165,7 @@ config.delete('/config/services/:id', async (c) => {
 const SERVICE_ICONS: Record<string, string> = {
     postgresql: '🐘', redis: '⚡', opensearch: '🔍', neo4j: '🕸️', misp: '🛡️', alienvault: '👽',
     minio: '📦', rabbitmq: '🐇', 'google-gemini': '🤖', openrouter: '🤖', riskiq: '🔍',
-    shodan: '🔎', zoomeye: '👁️', vault: '🔐', keycloak: '🔑', meilisearch: '🔍', n8n: '⚙️',
+    shodan: '🔎', zoomeye: '👁️', vault: '🔐', keycloak: '🔑',
 };
 
 const FEED_ICONS: Record<string, string> = {
@@ -211,8 +211,6 @@ const SERVICE_LOGOS: Record<string, string> = {
     shodan: '/logos/shodan.png',
     vault: '/logos/vault.svg',
     keycloak: '/logos/keycloak.svg',
-    meilisearch: '/logos/meilisearch.svg',
-    n8n: '/logos/n8n.png',
 };
 
 const PROVIDER_LOGOS: Record<string, string> = {

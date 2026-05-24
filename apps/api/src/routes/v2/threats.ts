@@ -17,7 +17,7 @@ threatRoutes.get('/', async (c) => {
         success: true,
         data: {
             items: [],
-            pagination: { page, pageSize, totalItems: 0, totalPages: 0, hasNext: false, hasPrev: false },
+            pagination: { page, pageSize, total: 0, pages: 0, hasNext: false, hasPrev: false },
         },
         meta: { requestId: crypto.randomUUID(), took: 0 },
     });
@@ -45,7 +45,7 @@ indicatorRoutes.get('/', async (c) => {
         success: true,
         data: {
             items: [],
-            pagination: { page, pageSize, totalItems: 0, totalPages: 0, hasNext: false, hasPrev: false },
+            pagination: { page, pageSize, total: 0, pages: 0, hasNext: false, hasPrev: false },
         },
         meta: { requestId: crypto.randomUUID(), took: 0 },
     });

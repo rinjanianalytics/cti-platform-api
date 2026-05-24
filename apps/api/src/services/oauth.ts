@@ -36,30 +36,6 @@ const COOKIE_MAX_AGE = 10 * 60; // 10 minutes — only the auth round-trip
 const DASHBOARD_URL = process.env.DASHBOARD_URL || 'http://localhost:3000';
 
 // ---------------------------------------------------------------------------
-// Schema bootstrap — make sure the oauth_identities table exists. We do this
-// idempotently rather than relying on the Drizzle migration pipeline so the
-// feature works the first time an operator turns it on.
-// ---------------------------------------------------------------------------
-
-let tableEnsured = false;
-async function ensureOauthIdentitiesTable(): Promise<void> {
-    if (tableEnsured) return;
-    await db.execute(sql`
-        CREATE TABLE IF NOT EXISTS oauth_identities (
-            id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            provider      VARCHAR(32) NOT NULL,
-            subject       VARCHAR(128) NOT NULL,
-            email_at_link VARCHAR(255),
-            linked_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            last_login_at TIMESTAMPTZ,
-            CONSTRAINT oauth_identities_provider_subject_unique UNIQUE (provider, subject)
-        )
-    `);
-    tableEnsured = true;
-}
-
-// ---------------------------------------------------------------------------
 // Provider clients (lazy — only configured when env vars are present)
 // ---------------------------------------------------------------------------
 
@@ -132,7 +108,6 @@ interface NormalisedIdentity {
 async function upsertUserAndIdentity(identity: NormalisedIdentity): Promise<{
     id: string; email: string; name: string; role: string;
 }> {
-    await ensureOauthIdentitiesTable();
     const email = identity.email.toLowerCase();
 
     // Build the per-login refresh payload. Display name + lastLogin always refresh

@@ -106,12 +106,6 @@ function getBuiltinTools(): MCPTool[] {
             },
         },
         {
-            name: 'search.instant',
-            description: 'MeiliSearch-powered instant typeahead search with sub-50ms response times.',
-            category: 'search',
-            enabled: !!process.env.MEILI_URL,
-        },
-        {
             name: 'search.vector',
             description: 'Semantic vector search — find similar entities by meaning, not just keyword match.',
             category: 'search',

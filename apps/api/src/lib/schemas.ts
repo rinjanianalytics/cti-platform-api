@@ -6,87 +6,7 @@
  */
 
 import { z } from 'zod';
-
-// ============================================================================
-// Web Search — Request & Job Data
-// ============================================================================
-
-/**
- * API request body for POST /v1/web-search
- */
-export const WebSearchRequestSchema = z.object({
-    query: z.string().min(1, 'query is required').max(500),
-    numResults: z.number().int().min(1).max(50).default(10),
-    provider: z.enum(['searxng', 'exa']).default('searxng'),
-    categories: z.array(z.string()).optional(),
-    timeRange: z.string().optional(),
-    /** If true, persist results to OpenSearch + Neo4j */
-    persist: z.boolean().default(false),
-    /** If true, extract IOCs from results */
-    extractIOCs: z.boolean().default(true),
-});
-
-export type WebSearchRequest = z.infer<typeof WebSearchRequestSchema>;
-
-/**
- * Data shape stored in the BullMQ job (superset of the request).
- */
-export const WebSearchJobDataSchema = WebSearchRequestSchema.extend({
-    /** Unique correlation ID for tracing */
-    correlationId: z.string().uuid(),
-    /** ISO timestamp when the job was created */
-    createdAt: z.string().datetime(),
-});
-
-export type WebSearchJobData = z.infer<typeof WebSearchJobDataSchema>;
-
-// ============================================================================
-// Web Search — Result
-// ============================================================================
-
-export const WebSearchResultItemSchema = z.object({
-    title: z.string(),
-    url: z.string().url(),
-    snippet: z.string().optional(),
-    source: z.string().optional(),
-    publishedDate: z.string().optional(),
-});
-
-export const WebSearchResultSchema = z.object({
-    items: z.array(WebSearchResultItemSchema),
-    iocs: z.array(z.object({
-        type: z.string(),
-        value: z.string(),
-    })).optional(),
-    iocStats: z.record(z.string(), z.number()).optional(),
-    provider: z.string(),
-    query: z.string(),
-    totalResults: z.number().int(),
-    /** Persistence outcome (only if persist=true) */
-    persisted: z.object({
-        opensearch: z.boolean(),
-        neo4j: z.boolean(),
-    }).optional(),
-    processingTimeMs: z.number(),
-});
-
-export type WebSearchResult = z.infer<typeof WebSearchResultSchema>;
-
-// ============================================================================
-// Job Status Response
-// ============================================================================
-
-export const JobStatusResponseSchema = z.object({
-    jobId: z.string(),
-    status: z.enum(['waiting', 'active', 'completed', 'failed', 'delayed']),
-    progress: z.number().min(0).max(100).optional(),
-    result: WebSearchResultSchema.optional(),
-    error: z.string().optional(),
-    createdAt: z.string().optional(),
-    completedAt: z.string().optional(),
-});
-
-export type JobStatusResponse = z.infer<typeof JobStatusResponseSchema>;
+import { auditActionEnum, entityTypeEnum } from '@rinjani/db/schema';
 
 // ============================================================================
 // Query Parameter Schemas (shared across route files)
@@ -821,10 +741,16 @@ export type IntelligenceIOCQuery = z.infer<typeof IntelligenceIOCQuerySchema>;
 // Phase Z — Final Validation Sweep Schemas
 // ============================================================================
 
-/** GET /admin/audit — paginated, filterable audit log list */
+/**
+ * GET /admin/audit — paginated, filterable audit log list.
+ *
+ * `entityType` and `action` derive from the Drizzle pgEnums so the Zod
+ * validator, the audit service, and the DB enum can never silently drift
+ * apart (which previously caused user-audit writes to fail at insert time).
+ */
 export const AdminAuditListSchema = z.object({
-    entityType: z.enum(['ioc', 'vulnerability', 'threat_actor', 'pulse', 'indicator', 'malware']).optional(),
-    action: z.string().optional(),
+    entityType: z.enum(entityTypeEnum.enumValues).optional(),
+    action: z.enum(auditActionEnum.enumValues).optional(),
     from: z.string().optional(),
     to: z.string().optional(),
     page: z.coerce.number().int().min(1).default(1),
@@ -1348,50 +1274,6 @@ export const RelationshipFilterSchema = z.object({
 export const LandscapeQuerySchema = z.object({
     period: z.enum(['24h', '7d', '30d', '90d']).default('7d'),
     limit: z.coerce.number().int().min(1).max(100).default(20),
-});
-
-// ============================================================================
-// Phase 16 — Campaign Tracking (MISP Events / TheHive inspired)
-// ============================================================================
-
-export const CreateCampaignSchema = z.object({
-    name: z.string().min(1).max(300),
-    description: z.string().max(5000).optional(),
-    status: z.enum(['active', 'dormant', 'concluded', 'suspected']).default('active'),
-    threatLevel: z.enum(['critical', 'high', 'medium', 'low', 'unknown']).default('unknown'),
-    firstSeen: z.string().datetime().optional(),
-    lastSeen: z.string().datetime().optional(),
-    attribution: z.string().max(200).optional(),
-    tags: z.array(z.string()).default([]),
-    tlp: z.enum(['white', 'green', 'amber', 'red']).default('green'),
-});
-export type CreateCampaign = z.infer<typeof CreateCampaignSchema>;
-
-export const UpdateCampaignSchema = z.object({
-    name: z.string().min(1).max(300).optional(),
-    description: z.string().max(5000).optional(),
-    status: z.enum(['active', 'dormant', 'concluded', 'suspected']).optional(),
-    threatLevel: z.enum(['critical', 'high', 'medium', 'low', 'unknown']).optional(),
-    firstSeen: z.string().datetime().optional(),
-    lastSeen: z.string().datetime().optional(),
-    attribution: z.string().max(200).optional(),
-    tags: z.array(z.string()).optional(),
-    tlp: z.enum(['white', 'green', 'amber', 'red']).optional(),
-}).refine(d => Object.values(d).some(v => v !== undefined), { message: 'At least one field required' });
-
-export const CampaignLinkSchema = z.object({
-    entityType: z.enum(['ioc', 'vulnerability', 'threat-actor', 'malware', 'tool']),
-    entityId: z.string().min(1),
-    role: z.enum(['primary', 'supporting', 'observed']).default('observed'),
-    notes: z.string().max(2000).optional(),
-});
-
-export const CampaignFilterSchema = z.object({
-    page: z.coerce.number().int().min(1).default(1),
-    pageSize: z.coerce.number().int().min(1).max(100).default(20),
-    status: z.string().optional(),
-    threatLevel: z.string().optional(),
-    q: z.string().optional(),
 });
 
 // ============================================================================

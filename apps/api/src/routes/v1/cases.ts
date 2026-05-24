@@ -138,7 +138,7 @@ cases.get('/cases', async (c) => {
         success: true,
         data: {
             items: items.rows || [],
-            pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+            pagination: { page, pageSize, total, pages: Math.ceil(total / pageSize) },
         },
     });
 });

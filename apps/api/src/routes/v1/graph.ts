@@ -162,14 +162,4 @@ router.post('/graph/neo4j/cypher', async (c) => {
     return c.json({ success: true, data: result });
 });
 
-// Backfill IOC mentions from existing web intel items
-router.post('/graph/neo4j/backfill-mentions', async (c) => {
-    const { backfillMentions } = await import('../../services/webIntelPersist');
-
-    // Extract IOCs → save mentions → create Neo4j IOC nodes + MENTIONED_IN edges
-    const result = await backfillMentions();
-
-    return c.json({ success: true, data: result });
-});
-
 export default router;

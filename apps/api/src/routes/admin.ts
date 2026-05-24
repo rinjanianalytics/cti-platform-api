@@ -18,6 +18,9 @@ import streamRoutes from './admin/streams';
 import federationRoutes from './admin/federation';
 import rbacRoutes from './admin/rbac';
 import servicesRoutes from './admin/services';
+import schedulesRoutes from './admin/schedules';
+import activityRoutes from './admin/activity';
+import feedsRoutes from './admin/feeds';
 
 export const adminRouter = new Hono();
 
@@ -56,5 +59,14 @@ adminRouter.route('/rbac', rbacRoutes);
 
 // Service health aggregator — datastores + workers + queues + feeds + LLM
 adminRouter.route('/', servicesRoutes);
+
+// Scheduled-job control — enable/disable + interval-preset overrides
+adminRouter.route('/', schedulesRoutes);
+
+// Live job activity feed — rolling buffer + SSE stream + per-queue throughput
+adminRouter.route('/', activityRoutes);
+
+// Feed-centric management — wraps schedules + feed_sync_runs history
+adminRouter.route('/', feedsRoutes);
 
 export default adminRouter;

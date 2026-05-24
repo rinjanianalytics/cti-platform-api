@@ -7,9 +7,7 @@
  *   - Attack tree (Actor → Techniques → Tactics)
  *   - IOC pivoting (IOC → Pulse → Actor → other IOCs)
  *   - Related actors (shared techniques)
- *   - Campaign detection (cluster shared IOCs from web sources)
- *   - Source influence (rank web sources by contribution)
- *   - Actor attribution (IOC → WebSource → Actor chain)
+ *   - Raw Cypher (admin)
  */
 
 // Types
@@ -24,11 +22,8 @@ export {
     iocPivot,
 } from './neo4jGraph/graphTraversal';
 
-// Analysis: related actors, campaigns, source influence, attribution, cypher
+// Analysis: related actors + admin cypher
 export {
     findRelatedActors,
-    campaignDetection,
-    sourceInfluence,
-    actorAttribution,
     executeCypher,
 } from './neo4jGraph/graphAnalysis';

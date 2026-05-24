@@ -1,306 +1,378 @@
 /**
  * BullMQ Scheduled Jobs
- * 
+ *
  * Configures repeatable jobs for periodic feed syncs and maintenance tasks.
+ *
+ * Each scheduled job is described in JOB_REGISTRY with:
+ *   - key:         stable identifier (DB primary key in scheduled_job_overrides)
+ *   - jobId:       deterministic BullMQ jobId so repeatable jobs are
+ *                  idempotent on restart
+ *   - name:        BullMQ job name (used by workers' .add())
+ *   - description: surfaced in the admin UI
+ *   - defaultCron: shipped default; overridden by admin via interval preset
+ *   - queue:       the Queue this job runs on
+ *   - payload:     job data
+ *
+ * `setupScheduledJobs()` reads admin overrides at boot and registers jobs
+ * accordingly. `reconcileScheduledJob()` is called from the admin endpoint
+ * after an override changes — both the API process and the worker process
+ * see the same Redis state, so no cross-process messaging is needed.
  */
 
-import { feedSyncQueue, enrichmentQueue, aiAnalysisQueue, nexusQueue, cveEnrichmentQueue, maintenanceQueue } from './index';
+import type { Queue } from 'bullmq';
+import { feedSyncQueue, cveEnrichmentQueue, maintenanceQueue } from './index';
 import { createLogger } from '../lib/logger';
+import {
+    getOverride,
+    listOverrides,
+    presetToCron,
+    type IntervalPreset,
+} from '../services/scheduledJobOverrides';
 
 const log = createLogger('Scheduler');
 
 // ============================================================================
-// Schedule Configuration
+// Job Registry — single source of truth for every scheduled job
 // ============================================================================
 
-interface ScheduleConfig {
+export interface ScheduledJobRegistration {
+    /** Stable key (PK in scheduled_job_overrides). */
+    key: string;
+    /** Deterministic BullMQ jobId so restarts don't duplicate the schedule. */
+    jobId: string;
+    /** BullMQ job name. */
     name: string;
-    cron: string;
     description: string;
+    /** Cron pattern shipped as the default; admins can override via preset. */
+    defaultCron: string;
+    queue: Queue;
+    payload: Record<string, unknown>;
 }
 
-const SCHEDULES: Record<string, ScheduleConfig> = {
-    // =========================================================================
-    // HIGH-FREQUENCY SYNCS (Real-time threat intelligence)
-    // =========================================================================
-
-    // Every 15 minutes - OTX pulses for near real-time threat detection
-    otxSync: {
+export const JOB_REGISTRY: ScheduledJobRegistration[] = [
+    // --- High-frequency feed syncs --------------------------------------
+    {
+        key: 'otxSync',
+        jobId: 'scheduled-otx-sync',
         name: 'otx-sync',
-        cron: '*/15 * * * *', // Every 15 minutes
-        description: 'Sync AlienVault OTX pulses (high-frequency)',
+        description: 'Sync AlienVault OTX pulses',
+        defaultCron: '*/15 * * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'otx', options: { limit: 50 } },
     },
-
-    // Every hour - CISA KEV (new exploits are critical)
-    cisaSync: {
+    {
+        key: 'cisaSync',
+        jobId: 'scheduled-cisa-sync',
         name: 'cisa-sync',
-        cron: '0 * * * *', // At minute 0 of every hour
         description: 'Sync CISA Known Exploited Vulnerabilities',
+        defaultCron: '0 * * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'cisa' },
     },
-
-    // Daily at 2:00 AM - NVD CVE database (large dataset, low frequency)
-    nvdSync: {
+    {
+        key: 'nvdSync',
+        jobId: 'scheduled-nvd-sync',
         name: 'nvd-sync',
-        cron: '0 2 * * *', // Daily at 2 AM
         description: 'Sync NIST NVD CVE database (recently modified)',
+        defaultCron: '0 2 * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'nvd', options: { limit: 100 } },
     },
 
-    // Every 30 minutes - All feeds combined for comprehensive coverage
-    allFeedsSync: {
-        name: 'all-feeds-sync',
-        cron: '*/30 * * * *', // Every 30 minutes
-        description: 'Sync all threat intelligence feeds',
-    },
+    // --- CVE enrichment -------------------------------------------------
+    // INTENTIONALLY NOT IN THE REGISTRY.
+    // CVE enrichment is now work-driven: a Postgres trigger fires NOTIFY
+    // 'rinjani_work' whenever a vulnerability row lands with NULL CVSS,
+    // and `services/workListener.ts` enqueues an enrichment batch (with
+    // Redis dedup so a bulk feed sync collapses to a single wake-up).
+    // A backstop sweep runs at worker boot. See migration 0033.
 
-    // Daily at 3:00 AM — CVE enrichment (CVSS backfill + dates)
-    cveEnrichment: {
-        name: 'cve-enrichment-daily',
-        cron: '0 3 * * *', // Daily at 3 AM (after NVD sync at 2 AM)
-        description: 'Enrich CVEs missing CVSS scores and published dates',
-    },
-
-    // =========================================================================
-    // IOC FEED SYNCS (Abuse.ch ecosystem + OpenPhish)
-    // =========================================================================
-
-    abusesslSync: {
+    // --- IOC feeds (abuse.ch ecosystem + OpenPhish) --------------------
+    {
+        key: 'abusesslSync',
+        jobId: 'scheduled-abusessl-sync',
         name: 'abusessl-sync',
-        cron: '30 */6 * * *', // Every 6 hours at :30
         description: 'Sync Abuse.ch SSL blacklist',
+        defaultCron: '30 */6 * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'abusessl' },
     },
-    threatfoxSync: {
+    {
+        key: 'threatfoxSync',
+        jobId: 'scheduled-threatfox-sync',
         name: 'threatfox-sync',
-        cron: '0 */6 * * *', // Every 6 hours at :00
         description: 'Sync ThreatFox IOCs',
+        defaultCron: '0 */6 * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'threatfox' },
     },
-    urlhausSync: {
+    {
+        key: 'urlhausSync',
+        jobId: 'scheduled-urlhaus-sync',
         name: 'urlhaus-sync',
-        cron: '15 */6 * * *', // Every 6 hours at :15
         description: 'Sync URLhaus malicious URLs',
+        defaultCron: '15 */6 * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'urlhaus' },
     },
-    malwarebazaarSync: {
+    {
+        key: 'malwarebazaarSync',
+        jobId: 'scheduled-malwarebazaar-sync',
         name: 'malwarebazaar-sync',
-        cron: '45 */6 * * *', // Every 6 hours at :45
         description: 'Sync MalwareBazaar hashes',
+        defaultCron: '45 */6 * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'malwarebazaar' },
     },
-    openphishSync: {
+    {
+        key: 'openphishSync',
+        jobId: 'scheduled-openphish-sync',
         name: 'openphish-sync',
-        cron: '0 */4 * * *', // Every 4 hours
         description: 'Sync OpenPhish phishing URLs',
+        defaultCron: '0 */4 * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'openphish' },
     },
 
-    // =========================================================================
-    // KNOWLEDGE BASE SYNCS (lower frequency)
-    // =========================================================================
-
-    mitreSync: {
+    // --- Knowledge base syncs ------------------------------------------
+    {
+        key: 'mitreSync',
+        jobId: 'scheduled-mitre-sync',
         name: 'mitre-sync',
-        cron: '0 4 * * 0', // Weekly on Sunday at 4 AM
         description: 'Sync MITRE ATT&CK framework',
+        defaultCron: '0 4 * * 0',
+        queue: feedSyncQueue,
+        payload: { source: 'mitre' },
     },
-    mispGalaxySync: {
+    {
+        key: 'mispGalaxySync',
+        jobId: 'scheduled-mispgalaxy-sync',
         name: 'mispgalaxy-sync',
-        cron: '0 5 * * *', // Daily at 5 AM
-        description: 'Sync MISP Galaxy threat actor enrichment',
+        description: 'Sync MISP Galaxy threat-actor enrichment',
+        defaultCron: '0 5 * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'mispgalaxy' },
     },
 
-    // =========================================================================
-    // CONFIGURABLE VIA ENV (for rate limiting considerations)
-    // =========================================================================
-    // Override with: FEED_SYNC_CRON_OTX, FEED_SYNC_CRON_CISA, FEED_SYNC_CRON_ALL
-
-    // =========================================================================
-    // NEXUS WEB INTELLIGENCE (Exa Webset sync)
-    // =========================================================================
-
-    // Every 15 minutes - Pull new items from all Exa Websets (real-time threat intel)
-    nexusSync: {
-        name: 'nexus-webset-sync',
-        cron: '*/15 * * * *', // Every 15 minutes — CTI needs near-real-time sync
-        description: 'Sync all Nexus Webset items to local database',
-    },
-
-    // =========================================================================
-    // MAINTENANCE (data lifecycle)
-    // =========================================================================
-
-    confidenceDecay: {
+    // --- Maintenance ---------------------------------------------------
+    {
+        key: 'confidenceDecay',
+        jobId: 'scheduled-confidence-decay',
         name: 'confidence-decay',
-        cron: '0 1 * * *', // Daily at 1 AM
         description: 'Apply exponential decay to IOC confidence scores',
+        defaultCron: '0 1 * * *',
+        queue: maintenanceQueue,
+        payload: { type: 'confidence-decay' },
     },
-    dataRetention: {
+    {
+        key: 'dataRetention',
+        jobId: 'scheduled-data-retention',
         name: 'data-retention',
-        cron: '30 3 * * 0', // Weekly on Sunday at 3:30 AM
-        description: 'Prune old audit logs, resolved alerts, and archive stale IOCs',
+        description: 'Prune old audit logs, resolved alerts, archive stale IOCs',
+        defaultCron: '30 3 * * 0',
+        queue: maintenanceQueue,
+        payload: { type: 'data-retention' },
     },
-};
+];
 
 // ============================================================================
-// Setup Functions
+// Public API
 // ============================================================================
 
 /**
- * Setup all scheduled jobs
+ * Resolve the cron pattern for a job, taking the admin override into account.
+ * Returns null if the admin has disabled the job — the caller should skip it.
  */
-export async function setupScheduledJobs(): Promise<void> {
-    log.info('Setting up scheduled jobs');
+async function resolveJobConfig(reg: ScheduledJobRegistration): Promise<
+    { cron: string; payload: Record<string, unknown> } | null
+> {
+    const override = await getOverride(reg.key);
+    if (override && !override.enabled) return null;
 
-    try {
-        // OTX sync every 6 hours
-        await feedSyncQueue.add(
-            SCHEDULES.otxSync.name,
-            { source: 'otx' as const, options: { limit: 50 } },
-            {
-                repeat: { pattern: SCHEDULES.otxSync.cron },
-                jobId: 'scheduled-otx-sync',
-            }
-        );
-        log.info('Scheduled job added', { job: SCHEDULES.otxSync.description, cron: SCHEDULES.otxSync.cron });
+    const cron = presetToCron(override?.intervalPreset) ?? reg.defaultCron;
+    const payload = override?.payload ? { ...reg.payload, ...override.payload } : reg.payload;
+    return { cron, payload };
+}
 
-        // CISA sync daily
-        await feedSyncQueue.add(
-            SCHEDULES.cisaSync.name,
-            { source: 'cisa' as const },
-            {
-                repeat: { pattern: SCHEDULES.cisaSync.cron },
-                jobId: 'scheduled-cisa-sync',
-            }
-        );
-        log.info('Scheduled job added', { job: SCHEDULES.cisaSync.description, cron: SCHEDULES.cisaSync.cron });
+/**
+ * Remove the existing repeatable registration for a job, if any. Looks up by
+ * jobId rather than pattern so it works across pattern changes.
+ */
+async function removeRepeatableFor(reg: ScheduledJobRegistration): Promise<void> {
+    const existing = await reg.queue.getRepeatableJobs();
+    const match = existing.find(r => r.id === reg.jobId);
+    if (match) await reg.queue.removeRepeatableByKey(match.key);
+}
 
-        // NVD sync daily at 2 AM
-        await feedSyncQueue.add(
-            SCHEDULES.nvdSync.name,
-            { source: 'nvd' as const, options: { limit: 100 } },
-            {
-                repeat: { pattern: SCHEDULES.nvdSync.cron },
-                jobId: 'scheduled-nvd-sync',
-            }
-        );
-        log.info('Scheduled job added', { job: SCHEDULES.nvdSync.description, cron: SCHEDULES.nvdSync.cron });
+/**
+ * Register (or re-register) a single scheduled job based on current overrides.
+ * Safe to call repeatedly — removes any prior registration first.
+ *
+ * Called at boot from setupScheduledJobs(), and from the admin endpoint
+ * after an override is saved.
+ */
+export async function reconcileScheduledJob(reg: ScheduledJobRegistration): Promise<{
+    key: string; status: 'enabled' | 'disabled'; cron?: string;
+}> {
+    await removeRepeatableFor(reg);
 
-        // Nexus Webset sync every 15 minutes (real-time CTI pipeline)
-        await nexusQueue.add(
-            SCHEDULES.nexusSync.name,
-            { type: 'sync-all-websets' as const },
-            {
-                repeat: { pattern: SCHEDULES.nexusSync.cron },
-                jobId: 'scheduled-nexus-sync',
-            }
-        );
-        log.info('Scheduled job added', { job: SCHEDULES.nexusSync.description, cron: SCHEDULES.nexusSync.cron });
+    const config = await resolveJobConfig(reg);
+    if (!config) {
+        log.info('Scheduled job disabled by override', { key: reg.key });
+        return { key: reg.key, status: 'disabled' };
+    }
 
-        // CVE enrichment daily at 3 AM
-        await cveEnrichmentQueue.add(
-            SCHEDULES.cveEnrichment.name,
-            { type: 'all' as const, batchSize: 100 },
-            {
-                repeat: { pattern: SCHEDULES.cveEnrichment.cron },
-                jobId: 'scheduled-cve-enrichment',
-            }
-        );
-        log.info('Scheduled job added', { job: SCHEDULES.cveEnrichment.description, cron: SCHEDULES.cveEnrichment.cron });
+    await reg.queue.add(reg.name, config.payload, {
+        repeat: { pattern: config.cron },
+        jobId: reg.jobId,
+    });
+    log.info('Scheduled job registered', {
+        key: reg.key,
+        cron: config.cron,
+        description: reg.description,
+    });
+    return { key: reg.key, status: 'enabled', cron: config.cron };
+}
 
-        // IOC feeds (abuse.ch ecosystem + OpenPhish)
-        const iocFeeds = [
-            { schedule: SCHEDULES.abusesslSync, source: 'abusessl' as const },
-            { schedule: SCHEDULES.threatfoxSync, source: 'threatfox' as const },
-            { schedule: SCHEDULES.urlhausSync, source: 'urlhaus' as const },
-            { schedule: SCHEDULES.malwarebazaarSync, source: 'malwarebazaar' as const },
-            { schedule: SCHEDULES.openphishSync, source: 'openphish' as const },
-            { schedule: SCHEDULES.mitreSync, source: 'mitre' as const },
-            { schedule: SCHEDULES.mispGalaxySync, source: 'mispgalaxy' as const },
-        ];
-        for (const { schedule, source } of iocFeeds) {
-            await feedSyncQueue.add(
-                schedule.name,
-                { source },
-                {
-                    repeat: { pattern: schedule.cron },
-                    jobId: `scheduled-${source}-sync`,
+/** Reconcile a job by key. Throws if the key isn't in the registry. */
+export async function reconcileScheduledJobByKey(key: string) {
+    const reg = JOB_REGISTRY.find(r => r.key === key);
+    if (!reg) throw new Error(`Unknown scheduled job key: ${key}`);
+    return reconcileScheduledJob(reg);
+}
+
+/**
+ * Remove repeatable jobs from Redis that are no longer in `JOB_REGISTRY`.
+ *
+ * Without this, removing an entry from the registry (e.g. when we migrated
+ * CVE enrichment from cron to NOTIFY-driven in slice 6) leaves a zombie:
+ * BullMQ keeps generating delayed instances on the old schedule because
+ * the repeatable still lives in Redis. This pass deletes any repeatable
+ * whose jobId isn't in the current registry, restoring the registry as
+ * the single source of truth for "what's actually scheduled".
+ */
+async function cleanupUnregisteredRepeatables(): Promise<string[]> {
+    const knownJobIds = new Set(JOB_REGISTRY.map(r => r.jobId));
+    // Every queue we've ever scheduled work on. Adding a new queue to the
+    // registry above should also be added here.
+    const managedQueues = [feedSyncQueue, maintenanceQueue, cveEnrichmentQueue];
+    const removed: string[] = [];
+
+    for (const queue of managedQueues) {
+        const repeatables = await queue.getRepeatableJobs();
+        for (const r of repeatables) {
+            if (r.id && !knownJobIds.has(r.id)) {
+                try {
+                    await queue.removeRepeatableByKey(r.key);
+                    removed.push(`${queue.name}/${r.id}`);
+                    log.info('Removed stale repeatable', { queue: queue.name, jobId: r.id, key: r.key });
+                } catch (err) {
+                    log.warn('Could not remove stale repeatable', {
+                        queue: queue.name, jobId: r.id, error: (err as Error).message,
+                    });
                 }
-            );
-            log.info('Scheduled job added', { job: schedule.description, cron: schedule.cron });
+            }
         }
+    }
+    return removed;
+}
 
+/** Setup all scheduled jobs at boot. */
+export async function setupScheduledJobs(): Promise<void> {
+    log.info('Setting up scheduled jobs', { count: JOB_REGISTRY.length });
+    try {
+        for (const reg of JOB_REGISTRY) {
+            await reconcileScheduledJob(reg);
+        }
+        const removed = await cleanupUnregisteredRepeatables();
+        if (removed.length > 0) {
+            log.info('Cleaned up stale repeatables', { count: removed.length, removed });
+        }
         log.info('All scheduled jobs configured');
-
-        // Maintenance jobs
-        await maintenanceQueue.add(
-            SCHEDULES.confidenceDecay.name,
-            { type: 'confidence-decay' },
-            {
-                repeat: { pattern: SCHEDULES.confidenceDecay.cron },
-                jobId: 'scheduled-confidence-decay',
-            }
-        );
-        log.info('Scheduled job added', { job: SCHEDULES.confidenceDecay.description, cron: SCHEDULES.confidenceDecay.cron });
-
-        await maintenanceQueue.add(
-            SCHEDULES.dataRetention.name,
-            { type: 'data-retention' },
-            {
-                repeat: { pattern: SCHEDULES.dataRetention.cron },
-                jobId: 'scheduled-data-retention',
-            }
-        );
-        log.info('Scheduled job added', { job: SCHEDULES.dataRetention.description, cron: SCHEDULES.dataRetention.cron });
     } catch (err) {
         log.error('Failed to setup scheduled jobs', err as Error);
     }
 }
 
 /**
- * Get all repeatable jobs
+ * Admin-view of every scheduled job — registry entry + current override (if
+ * any) + the effective cron that's actually running.
  */
+export async function getScheduledJobsAdminView() {
+    const overrides = await listOverrides();
+    const byKey = new Map(overrides.map(o => [o.jobKey, o]));
+
+    return JOB_REGISTRY.map(reg => {
+        const override = byKey.get(reg.key) ?? null;
+        const effectiveCron = override && !override.enabled
+            ? null
+            : presetToCron(override?.intervalPreset) ?? reg.defaultCron;
+
+        return {
+            key: reg.key,
+            jobId: reg.jobId,
+            name: reg.name,
+            description: reg.description,
+            defaultCron: reg.defaultCron,
+            queueName: reg.queue.name,
+            payload: reg.payload,
+            override: override ? {
+                enabled: override.enabled,
+                intervalPreset: override.intervalPreset as IntervalPreset | null,
+                payload: override.payload,
+                updatedAt: override.updatedAt.toISOString(),
+                updatedBy: override.updatedBy,
+            } : null,
+            enabled: override?.enabled ?? true,
+            effectiveCron,
+        };
+    });
+}
+
+/** Get all repeatable jobs across the queues we manage. */
 export async function getScheduledJobs() {
-    const [feedSyncJobs, nexusJobs, maintenanceJobs] = await Promise.all([
+    const [feedSyncJobs, maintenanceJobs] = await Promise.all([
         feedSyncQueue.getRepeatableJobs(),
-        nexusQueue.getRepeatableJobs(),
         maintenanceQueue.getRepeatableJobs(),
     ]);
 
     return {
         feedSync: feedSyncJobs,
-        nexusIntel: nexusJobs,
         maintenance: maintenanceJobs,
     };
 }
 
-/**
- * Remove all scheduled jobs
- */
+/** Remove all scheduled jobs across managed queues. */
 export async function clearScheduledJobs(): Promise<void> {
     log.info('Clearing all scheduled jobs');
-
-    const feedSyncJobs = await feedSyncQueue.getRepeatableJobs();
-    const nexusJobs = await nexusQueue.getRepeatableJobs();
-    const maintenanceJobs = await maintenanceQueue.getRepeatableJobs();
-
-    for (const job of feedSyncJobs) {
-        await feedSyncQueue.removeRepeatableByKey(job.key);
+    const queues = [feedSyncQueue, maintenanceQueue, cveEnrichmentQueue];
+    for (const q of queues) {
+        const jobs = await q.getRepeatableJobs();
+        for (const job of jobs) {
+            await q.removeRepeatableByKey(job.key);
+        }
     }
-    for (const job of nexusJobs) {
-        await nexusQueue.removeRepeatableByKey(job.key);
-    }
-    for (const job of maintenanceJobs) {
-        await maintenanceQueue.removeRepeatableByKey(job.key);
-    }
-
     log.info('All scheduled jobs cleared');
 }
 
-/**
- * Trigger an immediate sync (bypasses schedule)
- */
+/** Trigger an immediate one-off run for a registered job, bypassing the cron. */
+export async function triggerScheduledJobNow(key: string) {
+    const reg = JOB_REGISTRY.find(r => r.key === key);
+    if (!reg) throw new Error(`Unknown scheduled job key: ${key}`);
+    const job = await reg.queue.add(`adhoc-${reg.name}-${Date.now()}`, reg.payload, {
+        priority: 1,
+    });
+    log.info('Triggered ad-hoc run for scheduled job', { key, jobId: job.id });
+    return { jobId: job.id, queue: reg.queue.name };
+}
+
+/** Legacy convenience for arbitrary "sync all" / "sync OTX" triggers. */
 export async function triggerImmediateSync(source: 'otx' | 'cisa' | 'nvd' | 'all' = 'all') {
     const job = await feedSyncQueue.add(
         `immediate-${source}-sync`,
         { source, options: { limit: 100 } },
-        { priority: 1 } // High priority
+        { priority: 1 },
     );
-
     log.info('Triggered immediate sync', { source, jobId: job.id });
     return job;
 }

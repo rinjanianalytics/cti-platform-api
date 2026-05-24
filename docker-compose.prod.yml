@@ -59,8 +59,6 @@ services:
       - KEYCLOAK_URL=${KEYCLOAK_URL:-}
       - VAULT_ADDR=${VAULT_ADDR:-}
       - VAULT_TOKEN=${VAULT_TOKEN:-}
-      - MEILISEARCH_URL=${MEILISEARCH_URL:-}
-      - MEILISEARCH_KEY=${MEILISEARCH_KEY:-}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://v3-tempo:4318
       - OTEL_SERVICE_NAME=rinjani-api
       - SEARXNG_URL=http://v3-searxng:8080

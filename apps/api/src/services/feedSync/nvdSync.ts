@@ -221,71 +221,8 @@ async function upsertCVEBatch(
     }
 }
 
-/**
-     * Backfill CVSS scores for CVEs that are missing them.
-     * Queries NVD for individual CVE IDs and updates the database.
-     * Limited to 50 per run to respect NVD rate limits.
-     */
-export async function backfillMissingCvss(): Promise<{ updated: number; checked: number; errors: string[] }> {
-    const stats = { updated: 0, checked: 0, errors: [] as string[] };
-
-    if (!NVD_API_KEY) {
-        stats.errors.push('No CVE_API_KEY configured');
-        return stats;
-    }
-
-    try {
-        // Find CVEs with missing CVSS
-        const missing = await db.execute(sql`
-            SELECT cve_id FROM vulnerabilities
-            WHERE cvss_score IS NULL AND cve_id IS NOT NULL
-            ORDER BY created_at DESC
-            LIMIT 50
-        `) as unknown as Array<{ cve_id: string }>;
-
-        const cveIds = (Array.isArray(missing) ? missing : []).map(r => r.cve_id).filter(Boolean);
-        log.info('CVSS backfill: found CVEs missing scores', { count: cveIds.length });
-
-        for (const cveId of cveIds) {
-            stats.checked++;
-            try {
-                // NVD rate limit: ~6s between requests with API key
-                if (stats.checked > 1) await new Promise(r => setTimeout(r, RATE_LIMIT_MS));
-
-                const url = `${NVD_BASE_URL}?cveId=${cveId}`;
-                const res = await fetch(url, { headers: { apiKey: NVD_API_KEY } });
-                if (!res.ok) {
-                    log.warn('CVSS backfill: NVD fetch failed', { cveId, status: res.status });
-                    continue;
-                }
-
-                const data = await res.json() as NVDResponse;
-                const cve = data.vulnerabilities?.[0]?.cve;
-                if (!cve) continue;
-
-                const cvss = extractCVSS(cve);
-                if (cvss.score <= 0) continue; // Still no CVSS at NVD
-
-                await db.execute(sql`
-                    UPDATE vulnerabilities
-                    SET cvss_score = ${cvss.score.toString()},
-                        cvss_vector = ${cvss.vector},
-                        severity = COALESCE(${cvss.severity !== 'unknown' ? cvss.severity : null}, severity),
-                        updated_at = NOW()
-                    WHERE cve_id = ${cveId}
-                `);
-                stats.updated++;
-                log.info('CVSS backfill: updated', { cveId, score: cvss.score, severity: cvss.severity });
-
-            } catch (err) {
-                stats.errors.push(`${cveId}: ${(err as Error).message}`);
-            }
-        }
-    } catch (err) {
-        stats.errors.push(`Backfill failed: ${(err as Error).message}`);
-        log.error('CVSS backfill failed', err);
-    }
-
-    log.info('CVSS backfill completed', stats);
-    return stats;
-}
+// `backfillMissingCvss` was removed — the admin /admin/jobs/cvss-backfill
+// endpoint now delegates to `triggerEnrichmentSweep('cve-enrich')`, which
+// uses the OSV-first multi-source path in `vulnerabilityEnrichment.ts`
+// and `osvClient.ts`. The legacy function here was NVD-only and required
+// an NVD API key to do anything — strictly inferior to the new path.

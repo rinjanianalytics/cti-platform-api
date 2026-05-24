@@ -11,8 +11,8 @@ export { feedSyncWorker, enrichmentWorker } from './workers/feedWorkers';
 // AI analysis + notification + alerts workers
 export { aiAnalysisWorker, notificationWorker, alertsWorker, alertStore } from './workers/utilityWorkers';
 
-// Neo4j sync + Nexus intelligence workers
-export { neo4jSyncWorker, nexusWorker } from './workers/syncWorkers';
+// Neo4j sync worker
+export { neo4jSyncWorker } from './workers/syncWorkers';
 
 // CVE enrichment worker
 export { cveEnrichmentWorker } from './workers/cveEnrichmentWorker';

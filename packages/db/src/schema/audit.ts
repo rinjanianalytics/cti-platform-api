@@ -12,7 +12,7 @@ import { pgTable, uuid, varchar, text, timestamp, jsonb, index, pgEnum } from 'd
 // ============================================================================
 
 export const auditActionEnum = pgEnum('audit_action', ['create', 'update', 'delete', 'merge', 'enrich']);
-export const entityTypeEnum = pgEnum('entity_type', ['ioc', 'vulnerability', 'threat_actor', 'pulse', 'indicator', 'malware']);
+export const entityTypeEnum = pgEnum('entity_type', ['ioc', 'vulnerability', 'threat_actor', 'pulse', 'indicator', 'malware', 'user']);
 
 // ============================================================================
 // Audit Log Table

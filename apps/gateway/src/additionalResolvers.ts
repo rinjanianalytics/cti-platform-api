@@ -9,7 +9,7 @@
  *   - Stats & Monitoring (health, freshness, ops ingestion)
  *   - Configuration (feeds, API keys, services)
  *   - Intelligence (MITRE matrix, IOC enrichment, alerts)
- *   - Graph Exploration (Neo4j: campaigns, attack tree, IOC pivot, search)
+ *   - Graph Exploration (Neo4j: attack tree, IOC pivot, search)
  *   - Admin (users, audit, queues)
  */
 
@@ -157,13 +157,6 @@ const resolvers = {
 
         relatedActors: async (_: unknown, args: { actor: string; minShared?: number }) =>
             safeFetch(`/v1/graph/neo4j/related-actors/${encodeURIComponent(args.actor)}?minShared=${args.minShared || 1}`, { actors: [] }),
-
-        campaigns: async (_: unknown, args: { minSharedIOCs?: number; limit?: number }) => {
-            const params = new URLSearchParams();
-            if (args.minSharedIOCs) params.set('minSharedIOCs', String(args.minSharedIOCs));
-            if (args.limit) params.set('limit', String(args.limit));
-            return safeFetch(`/v2/graph/campaigns?${params}`, { nodes: [], edges: [], meta: {} });
-        },
 
         // ── Intelligence ────────────────────────────────────────────────────
         enrichIOC: async (_: unknown, args: { value: string; sources?: string[]; refresh?: boolean }) => {

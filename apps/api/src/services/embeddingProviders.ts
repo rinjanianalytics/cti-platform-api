@@ -133,6 +133,55 @@ export async function openrouterGenerateBatchEmbeddings(texts: string[]): Promis
 }
 
 // ============================================================================
+// Gemini — global rate limiter
+//
+// Gemini's free-tier embedding quota is 5 RPM / 100 RPD; paid tier 1 is 3000
+// RPM. Without coordination, parallel calls from index workers (a CISA sync
+// landing 1600 vulns) all fire simultaneously and 429 themselves into
+// uselessness — the per-call retry can't recover because every retry races
+// every other retry. This token bucket serialises calls across the process:
+//
+//   - one "token" per RPM slot, refilled at a steady rate
+//   - on 429, set a blackout — pause issuance for 60s so Gemini's quota
+//     window has time to roll over before we ask again
+//   - both single-embed and batch-embed paths share the bucket (they share
+//     the quota), so bulk + real-time can't trip each other
+//
+// Set GEMINI_EMBEDDING_RPM in .env to match your tier (default 5 for free).
+// ============================================================================
+
+const GEMINI_EMBEDDING_RPM = Math.max(1, parseInt(process.env.GEMINI_EMBEDDING_RPM || '5', 10));
+const GEMINI_MIN_INTERVAL_MS = Math.ceil(60_000 / GEMINI_EMBEDDING_RPM);
+const GEMINI_BLACKOUT_MS = 60_000;
+
+let geminiNextAllowedAt = 0;
+let geminiBlackoutUntil = 0;
+
+/** Wait until the next allowed Gemini call slot, then claim it. */
+async function acquireGeminiSlot(): Promise<void> {
+    // Serialise the wait+claim in JS-land — `while` loop handles the case
+    // where another caller advanced the watermark while we were sleeping.
+    while (true) {
+        const now = Date.now();
+        const waitUntil = Math.max(geminiNextAllowedAt, geminiBlackoutUntil);
+        if (waitUntil <= now) {
+            geminiNextAllowedAt = now + GEMINI_MIN_INTERVAL_MS;
+            return;
+        }
+        await new Promise(r => setTimeout(r, waitUntil - now));
+    }
+}
+
+/** Called when Gemini returns 429 — pause the bucket for a full quota window. */
+function recordGeminiThrottle(): void {
+    geminiBlackoutUntil = Date.now() + GEMINI_BLACKOUT_MS;
+    log.warn('Gemini 429 — bucket paused', {
+        until: new Date(geminiBlackoutUntil).toISOString(),
+        rpm: GEMINI_EMBEDDING_RPM,
+    });
+}
+
+// ============================================================================
 // Gemini
 // ============================================================================
 
@@ -147,6 +196,7 @@ export async function geminiGenerateEmbedding(text: string): Promise<number[]> {
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         try {
+            await acquireGeminiSlot();
             const res = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -168,7 +218,10 @@ export async function geminiGenerateEmbedding(text: string): Promise<number[]> {
                 throw new Error(`Gemini embedding API error ${res.status}: ${err.slice(0, 200)}`);
             }
 
-            // 429 / 5xx — transient. Back off and retry.
+            // 429 — pause the bucket so next retry waits for the quota window.
+            if (res.status === 429) recordGeminiThrottle();
+
+            // 5xx — transient. Back off and retry (bucket also gates retry).
             const waitMs = Math.min(1000 * Math.pow(2, attempt), 8000);
             log.warn('Gemini embedding transient error — retrying', {
                 status: res.status, attempt: attempt + 1, waitMs,
@@ -211,6 +264,7 @@ export async function geminiGenerateBatchEmbeddings(texts: string[]): Promise<nu
 
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
+                await acquireGeminiSlot();
                 const res = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -224,7 +278,8 @@ export async function geminiGenerateBatchEmbeddings(texts: string[]): Promise<nu
                 });
 
                 if (res.status === 429 || res.status === 503) {
-                    // Rate limited or overloaded — exponential backoff
+                    // Rate limited or overloaded — pause bucket on 429 + back off
+                    if (res.status === 429) recordGeminiThrottle();
                     const waitMs = Math.min(1000 * Math.pow(2, attempt), 8000);
                     log.warn('Gemini rate limited, retrying', {
                         status: res.status, attempt: attempt + 1, waitMs, batchStart: i,

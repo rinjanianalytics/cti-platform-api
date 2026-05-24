@@ -70,10 +70,25 @@ export const JOB_REGISTRY: ScheduledJobRegistration[] = [
         payload: { source: 'cisa' },
     },
     {
+        // PRIMARY CVE ingest. cvelistV5 delta.json refreshes every ~7
+        // minutes; we poll every 15. New CVEs typically reach our DB
+        // within 15 min of CNA disclosure. NVD often takes 5-14 days
+        // to surface the same CVE, so we keep NVD around only as a
+        // CVSS-score fallback (the work-driven enrichment trigger fires
+        // OSV first, NVD second, for any row with NULL cvss_score).
+        key: 'cveOrgSync',
+        jobId: 'scheduled-cveorg-sync',
+        name: 'cveorg-sync',
+        description: 'Sync CVE.org cvelistV5 (CNA-published CVEs, near-real-time)',
+        defaultCron: '*/15 * * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'cveorg' },
+    },
+    {
         key: 'nvdSync',
         jobId: 'scheduled-nvd-sync',
         name: 'nvd-sync',
-        description: 'Sync NIST NVD CVE database (recently modified)',
+        description: 'Sync NIST NVD CVE database (CVSS backfill for older CVEs)',
         defaultCron: '0 2 * * *',
         queue: feedSyncQueue,
         payload: { source: 'nvd', options: { limit: 100 } },
@@ -195,13 +210,24 @@ async function resolveJobConfig(reg: ScheduledJobRegistration): Promise<
 }
 
 /**
- * Remove the existing repeatable registration for a job, if any. Looks up by
- * jobId rather than pattern so it works across pattern changes.
+ * Remove every existing repeatable registration matching this job's BullMQ
+ * `name`. We match by `name`, not by `id` — `getRepeatableJobs()` returns
+ * `id: undefined` in current BullMQ versions, which silently breaks any
+ * jobId-based dedup and was leaving zombies behind on every override change.
+ *
+ * Using `name` (e.g. `nvd-sync`) means a registry entry with that name is
+ * the single owner: at reconcile time, every prior schedule for that name
+ * is dropped before the new one is added. A registry rename is the only
+ * thing that would orphan an old schedule under this rule, and
+ * `cleanupUnregisteredRepeatables()` handles that case.
  */
 async function removeRepeatableFor(reg: ScheduledJobRegistration): Promise<void> {
     const existing = await reg.queue.getRepeatableJobs();
-    const match = existing.find(r => r.id === reg.jobId);
-    if (match) await reg.queue.removeRepeatableByKey(match.key);
+    for (const r of existing) {
+        if (r.name === reg.name) {
+            await reg.queue.removeRepeatableByKey(r.key);
+        }
+    }
 }
 
 /**
@@ -242,35 +268,58 @@ export async function reconcileScheduledJobByKey(key: string) {
 }
 
 /**
- * Remove repeatable jobs from Redis that are no longer in `JOB_REGISTRY`.
+ * Remove repeatable jobs from Redis that aren't in `JOB_REGISTRY`.
  *
- * Without this, removing an entry from the registry (e.g. when we migrated
- * CVE enrichment from cron to NOTIFY-driven in slice 6) leaves a zombie:
- * BullMQ keeps generating delayed instances on the old schedule because
- * the repeatable still lives in Redis. This pass deletes any repeatable
- * whose jobId isn't in the current registry, restoring the registry as
- * the single source of truth for "what's actually scheduled".
+ * Two failure modes this catches:
+ *
+ *   1. Registry rename — old `name` lingers in Redis after a code change.
+ *      Identified by: a repeatable's `name` isn't claimed by any registry
+ *      entry. Drop it.
+ *
+ *   2. Duplicate registration — a single registry `name` has multiple
+ *      schedules in Redis (e.g. a pattern was changed but the old schedule
+ *      survived because the previous version of `removeRepeatableFor` used
+ *      `r.id` which BullMQ returns as undefined). Identified by: more than
+ *      one repeatable with the same `name`. Keep the one matching the
+ *      current registry pattern and drop the rest.
+ *
+ * Matches on `name`, not `id`, because `getRepeatableJobs()` returns
+ * `id: undefined` in current BullMQ versions — every prior id-based check
+ * was silently a no-op and that's exactly how the zombies built up.
  */
 async function cleanupUnregisteredRepeatables(): Promise<string[]> {
-    const knownJobIds = new Set(JOB_REGISTRY.map(r => r.jobId));
-    // Every queue we've ever scheduled work on. Adding a new queue to the
-    // registry above should also be added here.
+    // name → desired pattern (resolved per current overrides)
+    const desired = new Map<string, string>();
+    for (const reg of JOB_REGISTRY) {
+        const config = await resolveJobConfig(reg);
+        if (config) desired.set(reg.name, config.cron);
+    }
+
     const managedQueues = [feedSyncQueue, maintenanceQueue, cveEnrichmentQueue];
     const removed: string[] = [];
 
     for (const queue of managedQueues) {
         const repeatables = await queue.getRepeatableJobs();
         for (const r of repeatables) {
-            if (r.id && !knownJobIds.has(r.id)) {
-                try {
-                    await queue.removeRepeatableByKey(r.key);
-                    removed.push(`${queue.name}/${r.id}`);
-                    log.info('Removed stale repeatable', { queue: queue.name, jobId: r.id, key: r.key });
-                } catch (err) {
-                    log.warn('Could not remove stale repeatable', {
-                        queue: queue.name, jobId: r.id, error: (err as Error).message,
-                    });
-                }
+            const name = r.name;
+            if (!name) continue;
+            const desiredPattern = desired.get(name);
+            // Case 1: name unknown to current registry → orphan, drop.
+            // Case 2: name known but pattern doesn't match what reconcile
+            //         just registered → it's the loser of a registration
+            //         race, drop.
+            if (desiredPattern && r.pattern === desiredPattern) continue;
+            try {
+                await queue.removeRepeatableByKey(r.key);
+                removed.push(`${queue.name}/${name}/${r.pattern}`);
+                log.info('Removed stale repeatable', {
+                    queue: queue.name, name, pattern: r.pattern, key: r.key,
+                    reason: desiredPattern ? 'pattern-mismatch' : 'name-not-in-registry',
+                });
+            } catch (err) {
+                log.warn('Could not remove stale repeatable', {
+                    queue: queue.name, name, error: (err as Error).message,
+                });
             }
         }
     }

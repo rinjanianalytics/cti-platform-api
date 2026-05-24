@@ -69,23 +69,18 @@ interface SyncResult {
 // =============================================================================
 
 async function fetchRecentURLs(limit: number): Promise<URLhausURL[]> {
-    // URLhaus uses the unified abuse.ch Auth-Key — passed as an HTTP HEADER,
-    // not as a form field. The previous implementation put it in the body,
-    // which returns 401 Unauthorized as of the new auth scheme.
-    // Get a free key at https://auth.abuse.ch/ → Account → API key.
-    const body = new URLSearchParams({ limit: String(limit) });
+    // URLhaus's /v1/urls/recent/ is a GET endpoint (returns 405 on POST since
+    // their unified-auth refresh) and the Auth-Key is sent as a header, not
+    // a form field. Get a free key at https://auth.abuse.ch/ → Account → API key.
+    const url = new URL(`${URLHAUS_API_URL}urls/recent/`);
+    url.searchParams.set('limit', String(limit));
 
-    const headers: Record<string, string> = {
-        'Content-Type': 'application/x-www-form-urlencoded',
-    };
-    if (URLHAUS_AUTH_KEY) {
-        headers['Auth-Key'] = URLHAUS_AUTH_KEY;
-    }
+    const headers: Record<string, string> = {};
+    if (URLHAUS_AUTH_KEY) headers['Auth-Key'] = URLHAUS_AUTH_KEY;
 
-    const response = await fetchWithRetry(`${URLHAUS_API_URL}urls/recent/`, {
-        method: 'POST',
+    const response = await fetchWithRetry(url.toString(), {
+        method: 'GET',
         headers,
-        body: body.toString(),
     }, { name: 'URLhaus' });
 
     const data: URLhausResponse = (await response.json()) as URLhausResponse;

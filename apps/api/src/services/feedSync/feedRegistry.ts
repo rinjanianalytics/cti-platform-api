@@ -9,6 +9,7 @@ import type { SyncResult } from './types';
 import { syncOTXFeed } from './otxSync';
 import { syncCISAFeed } from './cisaSync';
 import { syncNVDFeed } from './nvdSync';
+import { syncCveOrgFeed } from './cveOrgSync';
 import {
     syncAbuseSSLFeed, syncThreatFoxFeed, syncURLhausFeed,
     syncMalwareBazaarFeed, syncOpenPhishFeed, syncMITREFeed, syncMISPGalaxyFeed,
@@ -24,6 +25,9 @@ export type FeedHandler = (opts?: FeedSyncOptions) => Promise<SyncResult>;
 const FEED_REGISTRY: Record<string, FeedHandler> = {
     otx: (opts) => syncOTXFeed(opts),
     cisa: (opts) => syncCISAFeed(opts),
+    // CVE.org cvelistV5 is the *primary* CVE ingest — fresh within
+    // minutes of CNA disclosure. NVD becomes a CVSS-score fallback only.
+    cveorg: (opts) => syncCveOrgFeed(opts),
     nvd: (opts) => syncNVDFeed(opts),
     abusessl: () => syncAbuseSSLFeed(),
     threatfox: () => syncThreatFoxFeed(),

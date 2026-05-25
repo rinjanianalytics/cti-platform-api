@@ -126,10 +126,14 @@ router.get('/threats', async (c) => {
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
+    // Order by upstream `last_seen` (when activity was actually observed)
+    // with a fallback to `updated_at` for actors that have no `last_seen`
+    // recorded — keeps freshly-synced metadata-only records from sinking to
+    // the bottom while still surfacing genuinely-active actors first.
     const items = await db.select()
         .from(threatActors)
         .where(whereClause)
-        .orderBy(desc(threatActors.updatedAt))
+        .orderBy(sql`COALESCE(${threatActors.lastSeen}, ${threatActors.updatedAt}) DESC NULLS LAST`)
         .limit(pageSize)
         .offset((page - 1) * pageSize);
 

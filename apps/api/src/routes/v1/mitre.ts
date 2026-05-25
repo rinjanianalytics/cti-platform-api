@@ -429,23 +429,31 @@ router.get('/mitre/matrix', async (c) => {
  * JSON array (double-encoded) so we parse it via `#>> '{}'` then re-cast.
  */
 router.get('/mitre/coverage', async (c) => {
-    const rows = await db.execute(sql`
-        SELECT
-          t.mitre_id  AS mitre_id,
-          t.name      AS name,
-          t.short_name AS short_name,
-          COUNT(DISTINCT tech.id) AS technique_count
-        FROM tactics t
-        LEFT JOIN techniques tech
-          ON (tech.tactic_ids #>> '{}')::jsonb @> to_jsonb(t.mitre_id::text)
-        GROUP BY t.mitre_id, t.name, t.short_name
-        ORDER BY t.mitre_id
-    `) as unknown as Array<{
-        mitre_id: string;
-        name: string;
-        short_name: string | null;
-        technique_count: string | number;
-    }>;
+    // Two parallel queries. The per-tactic count uses a JSONB containment join,
+    // which over-counts techniques shared between tactics (e.g. T1059 is in both
+    // Execution and Defense Evasion). `totalTechniques` therefore has to come
+    // from a separate `COUNT(*)` over the techniques table, not from summing
+    // the per-tactic numbers.
+    const [rows, totalRow] = await Promise.all([
+        db.execute(sql`
+            SELECT
+              t.mitre_id  AS mitre_id,
+              t.name      AS name,
+              t.short_name AS short_name,
+              COUNT(DISTINCT tech.id) AS technique_count
+            FROM tactics t
+            LEFT JOIN techniques tech
+              ON (tech.tactic_ids #>> '{}')::jsonb @> to_jsonb(t.mitre_id::text)
+            GROUP BY t.mitre_id, t.name, t.short_name
+            ORDER BY t.mitre_id
+        `) as unknown as Array<{
+            mitre_id: string;
+            name: string;
+            short_name: string | null;
+            technique_count: string | number;
+        }>,
+        db.execute(sql`SELECT COUNT(*)::int AS total FROM techniques`) as unknown as Array<{ total: number }>,
+    ]);
 
     const tactics = rows.map(r => ({
         mitreId: r.mitre_id,
@@ -454,7 +462,7 @@ router.get('/mitre/coverage', async (c) => {
         techniqueCount: Number(r.technique_count) || 0,
     }));
 
-    const totalTechniques = tactics.reduce((sum, t) => sum + t.techniqueCount, 0);
+    const totalTechniques = Number(totalRow?.[0]?.total ?? 0);
 
     return c.json({
         success: true,
@@ -465,36 +473,102 @@ router.get('/mitre/coverage', async (c) => {
 /**
  * GET /v1/actors/active?limit=10
  *
- * Most-recently-active threat actors, ordered by COALESCE(last_seen,
- * updated_at) DESC. Returns enough surface to render a watchlist row:
- * name, aliases, country, sophistication, last-seen, primary motivation.
+ * Threat-actor watchlist — actors with the highest current activity score.
+ * The score combines four signals (none individually authoritative, but the
+ * sum is a reasonable "who should I watch this week" ranking):
  *
- * No expensive joins — the home page block calls this once for an
- * overview; deeper drill-down lives on the actor detail page.
+ *   • pulses        — OTX pulses mentioning this actor (name or alias) in
+ *                     the last 7d. Strongest signal of current campaign
+ *                     activity. Weight 3.
+ *   • ttps          — relationship rows where this actor is the source
+ *                     and last_seen is in the last 30d. Counts active TTP
+ *                     linkages (techniques, malware, sectors). Weight 2.
+ *   • sophistication — categorical bias: strategic/advanced = 3, expert = 2,
+ *                     intermediate = 1, anything else = 0. Weight 1.
+ *   • recency       — +2 bonus if last_seen is within 7d, else 0.
+ *
+ * Actors with no last_seen in the last 90d are excluded entirely so the
+ * list doesn't fill with dormant historical entries.
+ *
+ * The response includes per-actor `score` and `breakdown` so the dashboard
+ * can render "why this scored high" without re-running the calculation.
  */
 router.get('/actors/active', async (c) => {
     const limitRaw = Number(c.req.query('limit') ?? 10);
     const limit = Math.min(Math.max(Math.floor(limitRaw) || 10, 1), 50);
 
-    // Prefer actors with curated activity (`last_seen IS NOT NULL`). They have
-    // real attribution dates; the rest are bulk-synced metadata records.
-    // `aliases` is stored as a JSONB *string* containing JSON (double-encoded),
-    // so it's parsed via `#>> '{}'` then re-cast in the mapper below.
+    // `aliases` is stored as a JSONB *string* containing JSON (double-encoded);
+    // unwrap via `#>> '{}'` then re-cast. `pulses.adversary` is plain text so
+    // we match it case-insensitively against the actor's name AND any alias.
     const rows = await db.execute(sql`
+        WITH base AS (
+          SELECT
+            id, stix_id, name,
+            (aliases #>> '{}')::jsonb AS aliases_array,
+            country, sophistication, primary_motivation,
+            first_seen, last_seen, updated_at
+          FROM threat_actors
+          WHERE last_seen IS NOT NULL
+            AND last_seen > now() - interval '90 days'
+        )
         SELECT
-          id,
-          stix_id,
-          name,
-          (aliases #>> '{}')::jsonb AS aliases_array,
-          country,
-          sophistication,
-          primary_motivation,
-          first_seen,
-          last_seen,
-          updated_at
-        FROM threat_actors
-        WHERE last_seen IS NOT NULL
-        ORDER BY last_seen DESC
+          b.*,
+          -- Pulse mentions in last 7d: name match OR alias match.
+          (
+            SELECT COUNT(*)::int FROM pulses p
+            WHERE p.adversary IS NOT NULL
+              AND p.otx_modified > now() - interval '7 days'
+              AND (
+                LOWER(p.adversary) = LOWER(b.name)
+                OR LOWER(p.adversary) IN (
+                  SELECT LOWER(elem::text) FROM jsonb_array_elements_text(b.aliases_array) AS elem
+                )
+              )
+          ) AS pulse_count,
+          -- TTP linkages observed in last 30d.
+          (
+            SELECT COUNT(*)::int FROM relationships r
+            WHERE r.source_type = 'threat_actor'
+              AND (r.source_id = b.id::text OR r.source_id = b.stix_id)
+              AND r.last_seen > now() - interval '30 days'
+          ) AS ttp_count,
+          CASE LOWER(COALESCE(b.sophistication, ''))
+            WHEN 'strategic'    THEN 3
+            WHEN 'advanced'     THEN 3
+            WHEN 'expert'       THEN 2
+            WHEN 'intermediate' THEN 1
+            ELSE 0
+          END AS sophistication_weight,
+          CASE WHEN b.last_seen > now() - interval '7 days' THEN 2 ELSE 0 END AS recency_bonus
+        FROM base b
+        ORDER BY
+          (
+            (SELECT COUNT(*)::int FROM pulses p
+             WHERE p.adversary IS NOT NULL
+               AND p.otx_modified > now() - interval '7 days'
+               AND (LOWER(p.adversary) = LOWER(b.name)
+                    OR LOWER(p.adversary) IN (
+                      SELECT LOWER(elem::text) FROM jsonb_array_elements_text(b.aliases_array) AS elem
+                    ))
+            ) * 3
+            +
+            (SELECT COUNT(*)::int FROM relationships r
+             WHERE r.source_type = 'threat_actor'
+               AND (r.source_id = b.id::text OR r.source_id = b.stix_id)
+               AND r.last_seen > now() - interval '30 days'
+            ) * 2
+            +
+            CASE LOWER(COALESCE(b.sophistication, ''))
+              WHEN 'strategic'    THEN 3
+              WHEN 'advanced'     THEN 3
+              WHEN 'expert'       THEN 2
+              WHEN 'intermediate' THEN 1
+              ELSE 0
+            END
+            +
+            CASE WHEN b.last_seen > now() - interval '7 days' THEN 2 ELSE 0 END
+          ) DESC,
+          b.last_seen DESC
         LIMIT ${limit}
     `) as unknown as Array<{
         id: string;
@@ -507,20 +581,35 @@ router.get('/actors/active', async (c) => {
         first_seen: Date | string | null;
         last_seen: Date | string | null;
         updated_at: Date | string | null;
+        pulse_count: number;
+        ttp_count: number;
+        sophistication_weight: number;
+        recency_bonus: number;
     }>;
 
-    const actors = rows.map(r => ({
-        id: r.id,
-        stixId: r.stix_id,
-        name: r.name,
-        aliases: Array.isArray(r.aliases_array) ? (r.aliases_array as string[]) : [],
-        country: r.country,
-        sophistication: r.sophistication,
-        primaryMotivation: r.primary_motivation,
-        firstSeen: r.first_seen,
-        lastSeen: r.last_seen,
-        updatedAt: r.updated_at,
-    }));
+    const actors = rows.map(r => {
+        const breakdown = {
+            pulses: Number(r.pulse_count) || 0,
+            ttps: Number(r.ttp_count) || 0,
+            sophistication: Number(r.sophistication_weight) || 0,
+            recency: Number(r.recency_bonus) || 0,
+        };
+        const score = breakdown.pulses * 3 + breakdown.ttps * 2 + breakdown.sophistication + breakdown.recency;
+        return {
+            id: r.id,
+            stixId: r.stix_id,
+            name: r.name,
+            aliases: Array.isArray(r.aliases_array) ? (r.aliases_array as string[]) : [],
+            country: r.country,
+            sophistication: r.sophistication,
+            primaryMotivation: r.primary_motivation,
+            firstSeen: r.first_seen,
+            lastSeen: r.last_seen,
+            updatedAt: r.updated_at,
+            score,
+            breakdown,
+        };
+    });
 
     return c.json({
         success: true,

@@ -55,3 +55,6 @@ export * from './atlas';
 // Admin-editable overrides for scheduled BullMQ jobs
 // NOTE: oauthIdentities lives inside ./users (alongside its parent table).
 export * from './scheduledJobOverrides';
+
+// Per-run feed-sync audit trail (recordFeedSyncRun / getFeedSyncHistory)
+export * from './feedSyncRuns';

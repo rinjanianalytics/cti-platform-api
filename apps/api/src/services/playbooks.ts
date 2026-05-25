@@ -111,7 +111,7 @@ export async function getExecutions(playbookId: string, limit = 50, offset = 0) 
 export async function executePlaybook(
     playbookId: string,
     triggerData: Record<string, unknown>
-): Promise<{ executionId: string; results: PlaybookActionResult[] }> {
+): Promise<typeof playbookExecutions.$inferSelect> {
     const db = await getPostgres();
 
     const pb = await getPlaybookById(playbookId);
@@ -125,6 +125,8 @@ export async function executePlaybook(
     }).returning();
 
     const results: PlaybookActionResult[] = [];
+    let finalStatus: 'completed' | 'failed' = 'failed';
+    let finalError: string | null = null;
 
     try {
         // Execute actions in order
@@ -143,42 +145,40 @@ export async function executePlaybook(
             }
         }
 
-        // Update execution record
         const allSuccess = results.every(r => r.success);
-        await db.update(playbookExecutions)
-            .set({
-                status: allSuccess ? 'completed' : 'failed',
-                results,
-                completedAt: new Date(),
-                error: allSuccess ? null : results.find(r => !r.success)?.error || null,
-            })
-            .where(eq(playbookExecutions.id, execution.id));
-
-        log.info('Playbook execution completed', {
-            playbookId,
-            executionId: execution.id,
-            status: allSuccess ? 'completed' : 'failed',
-            actionsExecuted: results.length,
-        });
-
+        finalStatus = allSuccess ? 'completed' : 'failed';
+        finalError = allSuccess ? null : results.find(r => !r.success)?.error || null;
     } catch (err) {
-        await db.update(playbookExecutions)
-            .set({
-                status: 'failed',
-                results,
-                error: (err as Error).message,
-                completedAt: new Date(),
-            })
-            .where(eq(playbookExecutions.id, execution.id));
-
+        finalStatus = 'failed';
+        finalError = (err as Error).message;
         log.error('Playbook execution error', {
             playbookId,
             executionId: execution.id,
-            error: (err as Error).message,
+            error: finalError,
         });
     }
 
-    return { executionId: execution.id, results };
+    // Single update site — return the final row so the client sees the real
+    // status (the previous return shape had no status field, which surfaced
+    // as "Status: undefined" in the dashboard's run-now toast).
+    const [finalRow] = await db.update(playbookExecutions)
+        .set({
+            status: finalStatus,
+            results,
+            error: finalError,
+            completedAt: new Date(),
+        })
+        .where(eq(playbookExecutions.id, execution.id))
+        .returning();
+
+    log.info('Playbook execution completed', {
+        playbookId,
+        executionId: execution.id,
+        status: finalStatus,
+        actionsExecuted: results.length,
+    });
+
+    return finalRow;
 }
 
 // ============================================================================

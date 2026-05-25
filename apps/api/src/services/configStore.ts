@@ -436,35 +436,9 @@ export interface FeedSyncRun {
     triggeredBy: 'scheduler' | 'manual';
 }
 
-/** Ensure feed_sync_runs table exists (safe to call multiple times) */
-let _syncTableReady: Promise<void> | null = null;
-async function ensureSyncRunsTable(): Promise<void> {
-    if (_syncTableReady) return _syncTableReady;
-    _syncTableReady = (async () => {
-        try {
-            await rawQuery(`
-                CREATE TABLE IF NOT EXISTS feed_sync_runs (
-                    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-                    feed_id TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'running',
-                    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    completed_at TIMESTAMPTZ,
-                    duration_ms INTEGER,
-                    items_ingested INTEGER DEFAULT 0,
-                    errors INTEGER DEFAULT 0,
-                    error_details TEXT,
-                    triggered_by TEXT NOT NULL DEFAULT 'scheduler'
-                );
-                CREATE INDEX IF NOT EXISTS idx_feed_sync_runs_feed_id ON feed_sync_runs(feed_id);
-                CREATE INDEX IF NOT EXISTS idx_feed_sync_runs_started_at ON feed_sync_runs(started_at DESC);
-            `);
-            log.info('feed_sync_runs table ready');
-        } catch (err) {
-            log.warn('Failed to ensure feed_sync_runs table (non-fatal)', { error: (err as Error).message });
-        }
-    })();
-    return _syncTableReady;
-}
+// `feed_sync_runs` is created by migration `0037_feed_sync_runs.sql`
+// (was previously a runtime `CREATE TABLE IF NOT EXISTS` here that spammed
+// Postgres NOTICEs on every boot).
 
 /** Record a feed sync run */
 export async function recordFeedSyncRun(feedId: string, stats: {
@@ -475,7 +449,6 @@ export async function recordFeedSyncRun(feedId: string, stats: {
     errorDetails?: string;
     triggeredBy?: 'scheduler' | 'manual';
 }): Promise<void> {
-    await ensureSyncRunsTable();
     const durationMs = Date.now() - stats.startedAt.getTime();
     const esc = (s: string) => s.replace(/'/g, "''");
     const errDetail = stats.errorDetails ? `'${esc(stats.errorDetails)}'` : 'NULL';
@@ -489,7 +462,6 @@ export async function recordFeedSyncRun(feedId: string, stats: {
 
 /** Get feed sync history */
 export async function getFeedSyncHistory(feedId: string, limit: number = 20): Promise<FeedSyncRun[]> {
-    await ensureSyncRunsTable();
     const esc = (s: string) => s.replace(/'/g, "''");
     const result = await rawQuery<{
         id: string; feed_id: string; status: string; started_at: string;

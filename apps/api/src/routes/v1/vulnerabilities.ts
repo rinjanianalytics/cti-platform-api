@@ -34,6 +34,10 @@ router.get('/vulnerabilities', async (c) => {
             ...(severity ? { severity: [severity] } : {}),
             ...(dateFrom ? { dateFrom } : {}),
             ...(dateTo ? { dateTo } : {}),
+            // `exploited=true` from the dashboard's "Known exploited only"
+            // toggle was previously parsed but never forwarded to the
+            // search call — the toggle had no effect.
+            ...(exploited === true ? { isExploited: true } : {}),
         },
         sort: { field: sortBy, order: 'desc' },
         pagination: { page, limit: pageSize },

@@ -27,7 +27,9 @@ router.get('/landscape/overview', async (c) => {
 
     const [iocStats, vulnStats, iocTypes, topSources, severityDist, notifCount] = await Promise.all([
         rawQuery(sql.raw(`SELECT COUNT(*) AS total, COUNT(CASE WHEN severity = 'critical' THEN 1 END) AS critical, COUNT(CASE WHEN severity = 'high' THEN 1 END) AS high, COALESCE(AVG(risk_score), 0) AS avg_score FROM iocs WHERE created_at >= NOW() - INTERVAL '${interval}'`)),
-        rawQuery(sql.raw(`SELECT COUNT(*) AS total, COUNT(CASE WHEN severity = 'CRITICAL' THEN 1 END) AS critical, COUNT(CASE WHEN severity = 'HIGH' THEN 1 END) AS high FROM vulnerabilities WHERE created_at >= NOW() - INTERVAL '${interval}'`)),
+        // severity is stored lowercase (schema: 'none' | 'low' | 'medium' | 'high' | 'critical');
+        // the previous uppercase match silently returned 0 for high/critical regardless of data.
+        rawQuery(sql.raw(`SELECT COUNT(*) AS total, COUNT(CASE WHEN severity = 'critical' THEN 1 END) AS critical, COUNT(CASE WHEN severity = 'high' THEN 1 END) AS high FROM vulnerabilities WHERE created_at >= NOW() - INTERVAL '${interval}'`)),
         rawQuery(sql.raw(`SELECT type, COUNT(*) AS count FROM iocs WHERE created_at >= NOW() - INTERVAL '${interval}' GROUP BY type ORDER BY count DESC LIMIT 10`)),
         rawQuery(sql.raw(`SELECT source, COUNT(*) AS count FROM iocs WHERE created_at >= NOW() - INTERVAL '${interval}' GROUP BY source ORDER BY count DESC LIMIT 10`)),
         rawQuery(sql.raw(`SELECT severity, COUNT(*) AS count FROM iocs WHERE created_at >= NOW() - INTERVAL '${interval}' GROUP BY severity ORDER BY count DESC`)),

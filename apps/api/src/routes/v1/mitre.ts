@@ -429,23 +429,31 @@ router.get('/mitre/matrix', async (c) => {
  * JSON array (double-encoded) so we parse it via `#>> '{}'` then re-cast.
  */
 router.get('/mitre/coverage', async (c) => {
-    const rows = await db.execute(sql`
-        SELECT
-          t.mitre_id  AS mitre_id,
-          t.name      AS name,
-          t.short_name AS short_name,
-          COUNT(DISTINCT tech.id) AS technique_count
-        FROM tactics t
-        LEFT JOIN techniques tech
-          ON (tech.tactic_ids #>> '{}')::jsonb @> to_jsonb(t.mitre_id::text)
-        GROUP BY t.mitre_id, t.name, t.short_name
-        ORDER BY t.mitre_id
-    `) as unknown as Array<{
-        mitre_id: string;
-        name: string;
-        short_name: string | null;
-        technique_count: string | number;
-    }>;
+    // Two parallel queries. The per-tactic count uses a JSONB containment join,
+    // which over-counts techniques shared between tactics (e.g. T1059 is in both
+    // Execution and Defense Evasion). `totalTechniques` therefore has to come
+    // from a separate `COUNT(*)` over the techniques table, not from summing
+    // the per-tactic numbers.
+    const [rows, totalRow] = await Promise.all([
+        db.execute(sql`
+            SELECT
+              t.mitre_id  AS mitre_id,
+              t.name      AS name,
+              t.short_name AS short_name,
+              COUNT(DISTINCT tech.id) AS technique_count
+            FROM tactics t
+            LEFT JOIN techniques tech
+              ON (tech.tactic_ids #>> '{}')::jsonb @> to_jsonb(t.mitre_id::text)
+            GROUP BY t.mitre_id, t.name, t.short_name
+            ORDER BY t.mitre_id
+        `) as unknown as Array<{
+            mitre_id: string;
+            name: string;
+            short_name: string | null;
+            technique_count: string | number;
+        }>,
+        db.execute(sql`SELECT COUNT(*)::int AS total FROM techniques`) as unknown as Array<{ total: number }>,
+    ]);
 
     const tactics = rows.map(r => ({
         mitreId: r.mitre_id,
@@ -454,7 +462,7 @@ router.get('/mitre/coverage', async (c) => {
         techniqueCount: Number(r.technique_count) || 0,
     }));
 
-    const totalTechniques = tactics.reduce((sum, t) => sum + t.techniqueCount, 0);
+    const totalTechniques = Number(totalRow?.[0]?.total ?? 0);
 
     return c.json({
         success: true,

@@ -88,6 +88,9 @@ export interface SearchOptions {
         source?: string[];
         dateFrom?: string;
         dateTo?: string;
+        /** Vulnerabilities only — when `true`, restrict to CVEs flagged as
+         *  known-exploited (CISA KEV). Undefined / false returns everything. */
+        isExploited?: boolean;
     };
     sort?: { field: string; order: 'asc' | 'desc' };
     pagination?: { page: number; limit: number };
@@ -185,6 +188,10 @@ export async function unifiedSearch(options: SearchOptions): Promise<SearchResul
         if (filters.dateFrom) range.updatedAt.gte = filters.dateFrom;
         if (filters.dateTo) range.updatedAt.lte = filters.dateTo;
         filter.push({ range });
+    }
+    if (filters.isExploited === true) {
+        // Boolean field — no `.keyword` suffix needed.
+        filter.push({ term: { isExploited: true } });
     }
 
     // Build search body

@@ -24,6 +24,11 @@ export const feedSyncRuns = pgTable('feed_sync_runs', {
     errors: integer('errors').default(0),
     errorDetails: text('error_details'),
     triggeredBy: text('triggered_by').notNull().default('scheduler'),
+    // Set by the feed-batch flow parent when all per-IOC enrichment
+    // children have finished. Null until then. See migration 0038.
+    enrichedAt: timestamp('enriched_at', { withTimezone: true }),
+    enrichmentChildrenTotal: integer('enrichment_children_total').notNull().default(0),
+    enrichmentChildrenDone: integer('enrichment_children_done').notNull().default(0),
 }, (t) => ({
     feedIdIdx: index('idx_feed_sync_runs_feed_id').on(t.feedId),
     // The physical index is DESC (see `0037_feed_sync_runs.sql`), but

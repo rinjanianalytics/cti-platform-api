@@ -438,26 +438,76 @@ export interface FeedSyncRun {
 
 // `feed_sync_runs` is created by migration `0037_feed_sync_runs.sql`
 // (was previously a runtime `CREATE TABLE IF NOT EXISTS` here that spammed
-// Postgres NOTICEs on every boot).
+// Postgres NOTICEs on every boot). Migration `0038_feed_sync_runs_enrichment.sql`
+// adds the enrichment-tracking columns used by the FlowProducer pilot.
 
-/** Record a feed sync run */
-export async function recordFeedSyncRun(feedId: string, stats: {
+/**
+ * Start a feed-sync run. Inserts a row with `status='running'` and returns
+ * its id so the caller can link the enrichment flow parent back to it,
+ * then call `completeFeedSyncRun(id, …)` once the ingest finishes.
+ *
+ * Split from the old single-call `recordFeedSyncRun` so the row exists
+ * before the FlowProducer adds the parent batch job — the parent needs
+ * `runId` in `job.data` to update this row when its children settle.
+ */
+export async function beginFeedSyncRun(feedId: string, opts: {
+    triggeredBy?: 'scheduler' | 'manual';
+} = {}): Promise<string> {
+    const trigger = opts.triggeredBy || 'scheduler';
+    const esc = (s: string) => s.replace(/'/g, "''");
+    const result = await rawQuery<{ id: string }>(sql.raw(`
+        INSERT INTO feed_sync_runs (feed_id, status, started_at, triggered_by)
+        VALUES ('${esc(feedId)}', 'running', NOW(), '${esc(trigger)}')
+        RETURNING id
+    `));
+    const id = result.rows?.[0]?.id;
+    if (!id) {
+        throw new Error('beginFeedSyncRun: insert returned no id');
+    }
+    return id;
+}
+
+/** Finalise a feed-sync run with the ingest outcome. Idempotent on `id`. */
+export async function completeFeedSyncRun(id: string, stats: {
     status: 'completed' | 'failed';
-    startedAt: Date;
     itemsIngested: number;
     errors: number;
     errorDetails?: string;
-    triggeredBy?: 'scheduler' | 'manual';
+    enrichmentChildrenTotal?: number;
 }): Promise<void> {
-    const durationMs = Date.now() - stats.startedAt.getTime();
     const esc = (s: string) => s.replace(/'/g, "''");
     const errDetail = stats.errorDetails ? `'${esc(stats.errorDetails)}'` : 'NULL';
-    const trigger = stats.triggeredBy || 'scheduler';
+    const children = stats.enrichmentChildrenTotal ?? 0;
     await rawQuery(sql.raw(`
-        INSERT INTO feed_sync_runs (feed_id, status, started_at, completed_at, duration_ms, items_ingested, errors, error_details, triggered_by)
-        VALUES ('${esc(feedId)}', '${stats.status}', '${stats.startedAt.toISOString()}', NOW(), ${durationMs}, ${stats.itemsIngested}, ${stats.errors}, ${errDetail}, '${trigger}')
+        UPDATE feed_sync_runs
+        SET status = '${stats.status}',
+            completed_at = NOW(),
+            duration_ms = EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000,
+            items_ingested = ${stats.itemsIngested},
+            errors = ${stats.errors},
+            error_details = ${errDetail},
+            enrichment_children_total = ${children}
+        WHERE id = '${esc(id)}'
     `));
-    log.info('Feed sync run recorded', { feedId, status: stats.status, durationMs, items: stats.itemsIngested });
+    log.info('Feed sync run completed', {
+        id, status: stats.status, items: stats.itemsIngested, enrichmentChildren: children,
+    });
+}
+
+/**
+ * Called by the feed-batch parent worker once all enrichment children have
+ * settled — stamps `enriched_at` and the final child count so the admin
+ * /feeds history can render "ingested at X, all enriched by Y."
+ */
+export async function markFeedSyncRunEnriched(id: string, childrenDone: number): Promise<void> {
+    const esc = (s: string) => s.replace(/'/g, "''");
+    await rawQuery(sql.raw(`
+        UPDATE feed_sync_runs
+        SET enriched_at = NOW(),
+            enrichment_children_done = ${childrenDone}
+        WHERE id = '${esc(id)}'
+    `));
+    log.info('Feed sync run enrichment finished', { id, childrenDone });
 }
 
 /** Get feed sync history */

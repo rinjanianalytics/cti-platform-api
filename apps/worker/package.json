@@ -4,13 +4,10 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "tsx watch src/worker-entry.ts",
-        "dev:standalone": "tsx watch src/index.ts",
-        "dev:workers": "tsx watch src/worker-entry.ts",
+        "_comment": "BullMQ workers + scheduler + work listener now run inside the @rinjani/api process. This package only ships one-off CLI helpers and the legacy standalone feed-sync daemon (kept for emergency use).",
         "build": "tsc",
-        "start": "tsx src/worker-entry.ts",
+        "dev:standalone": "tsx watch src/index.ts",
         "start:standalone": "node dist/index.js",
-        "start:workers": "tsx src/worker-entry.ts",
         "sync": "tsx src/sync.ts",
         "sync:daemon": "tsx src/index.ts",
         "sync:feeds": "tsx src/feeds/index.ts all",
@@ -22,10 +19,10 @@
     "dependencies": {
         "@rinjani/core": "workspace:*",
         "@rinjani/db": "workspace:*",
-        "bullmq": "^5.67.2",
+        "bullmq": "^5.77.3",
         "dotenv": "^17.2.3",
         "drizzle-orm": "^0.30.0",
-        "ioredis": "^5.9.2"
+        "ioredis": "^5.10.1"
     },
     "devDependencies": {
         "@types/node": "^20.11.0",

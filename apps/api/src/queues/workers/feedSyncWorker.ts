@@ -2,9 +2,12 @@ import { Worker, Job } from 'bullmq';
 import { connection } from '../../services/redis';
 import { getFeedHandler, getRegisteredFeeds } from '../../services/feedSync/feedRegistry';
 import type { FeedSyncJobData } from '../types';
-import { enrichmentQueue } from '../definitions';
+import { flowProducer } from '../definitions';
 import { createLogger } from '../../lib/logger';
-import { getConfig, getFeedById } from '../../services/configStore';
+import {
+    getConfig, getFeedById,
+    beginFeedSyncRun, completeFeedSyncRun,
+} from '../../services/configStore';
 
 const AUTO_ENRICH_CONFIG = {
     enabled: process.env.AUTO_ENRICH_ENABLED === 'true', // opt-IN: set AUTO_ENRICH_ENABLED=true to enable
@@ -30,6 +33,15 @@ export const feedSyncWorker = new Worker<FeedSyncJobData>(
         const { source, options } = job.data;
         let result;
         const newIOCs: Array<{ id: string; value: string; type: string }> = [];
+
+        // Open a feed_sync_runs row before any work — the flow parent
+        // needs this id to write back enriched_at when its children settle.
+        // Use the BullMQ job's trigger when available so manual runs from
+        // /admin/jobs get the correct provenance.
+        const triggeredBy: 'scheduler' | 'manual' =
+            (job.data.options as { triggeredBy?: 'scheduler' | 'manual' } | undefined)?.triggeredBy
+            ?? 'scheduler';
+        const runId = await beginFeedSyncRun(source, { triggeredBy });
 
         try {
             await job.updateProgress(10);
@@ -114,48 +126,71 @@ export const feedSyncWorker = new Worker<FeedSyncJobData>(
 
             await job.updateProgress(70);
 
-            // Auto-enrichment
+            // Auto-enrichment — fan out as a FlowProducer batch so workbench's
+            // Flows view shows one parent ("batch-<runId>") with N children.
+            // The parent job (in `feed-batch` queue) settles after all children
+            // complete and stamps `feed_sync_runs.enriched_at` for this run.
             let enrichmentJobsQueued = 0;
             if (AUTO_ENRICH_CONFIG.enabled && newIOCs.length > 0) {
-                log.info('Auto-enrichment enabled', { queueing: Math.min(newIOCs.length, AUTO_ENRICH_CONFIG.batchSize) });
-
                 const iocsToEnrich = newIOCs
                     .filter(ioc => AUTO_ENRICH_CONFIG.priorityTypes.includes(ioc.type))
                     .slice(0, AUTO_ENRICH_CONFIG.batchSize);
 
-                for (let i = 0; i < iocsToEnrich.length; i++) {
-                    const ioc = iocsToEnrich[i];
-                    await enrichmentQueue.add(
-                        `auto-enrich-${ioc.id}`,
-                        {
-                            iocId: ioc.id,
-                            iocValue: ioc.value,
-                            iocType: ioc.type,
-                            sources: ['virustotal', 'geoip'],
-                        },
-                        {
-                            delay: i * AUTO_ENRICH_CONFIG.delayMs,
-                            priority: 5,
-                        }
-                    );
-                    enrichmentJobsQueued++;
+                if (iocsToEnrich.length > 0) {
+                    log.info('Auto-enrichment: building flow', { children: iocsToEnrich.length });
+                    await flowProducer.add({
+                        name: `batch-${runId}`,
+                        queueName: 'feed-batch',
+                        data: { runId, source, ingestedCount: iocsToEnrich.length },
+                        children: iocsToEnrich.map((ioc, i) => ({
+                            name: `auto-enrich-${ioc.id}`,
+                            queueName: 'ioc-enrichment',
+                            data: {
+                                iocId: ioc.id,
+                                iocValue: ioc.value,
+                                iocType: ioc.type,
+                                sources: ['virustotal', 'geoip'],
+                            },
+                            opts: {
+                                delay: i * AUTO_ENRICH_CONFIG.delayMs,
+                                priority: 5,
+                            },
+                        })),
+                    });
+                    enrichmentJobsQueued = iocsToEnrich.length;
+                    log.info('Auto-enrichment flow queued', { runId, children: enrichmentJobsQueued });
                 }
-                log.info('Auto-enrichment jobs queued', { count: enrichmentJobsQueued });
             }
 
             await job.updateProgress(100);
 
             const { success: _, ...syncData } = (result || {}) as Record<string, unknown>;
 
+            await completeFeedSyncRun(runId, {
+                status: 'completed',
+                itemsIngested: (syncData.indicatorsAdded as number) ?? newIOCs.length,
+                errors: (syncData.errors as unknown[])?.length ?? 0,
+                enrichmentChildrenTotal: enrichmentJobsQueued,
+            });
+
             return {
                 success: true,
                 source,
+                runId,
                 processedAt: new Date().toISOString(),
                 autoEnrichmentJobsQueued: enrichmentJobsQueued,
                 ...syncData,
             };
         } catch (error) {
-            log.error('Job failed', error as Error, { jobId: job.id });
+            log.error('Job failed', error as Error, { jobId: job.id, runId });
+            await completeFeedSyncRun(runId, {
+                status: 'failed',
+                itemsIngested: newIOCs.length,
+                errors: 1,
+                errorDetails: (error as Error).message.slice(0, 1000),
+                enrichmentChildrenTotal: 0,
+            }).catch(err => log.warn('failed to mark run as failed', { err: (err as Error).message }));
+
             await job.updateData({
                 ...job.data,
                 _errorMeta: {

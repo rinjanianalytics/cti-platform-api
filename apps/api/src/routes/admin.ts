@@ -21,6 +21,7 @@ import servicesRoutes from './admin/services';
 import schedulesRoutes from './admin/schedules';
 import activityRoutes from './admin/activity';
 import feedsRoutes from './admin/feeds';
+import workbenchRoutes from './admin/workbench';
 
 export const adminRouter = new Hono();
 
@@ -68,5 +69,8 @@ adminRouter.route('/', activityRoutes);
 
 // Feed-centric management — wraps schedules + feed_sync_runs history
 adminRouter.route('/', feedsRoutes);
+
+// Workbench BullMQ dashboard — basic-auth-protected deep-dive at /admin/workbench
+adminRouter.route('/', workbenchRoutes);
 
 export default adminRouter;

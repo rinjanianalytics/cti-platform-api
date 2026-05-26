@@ -1,6 +1,7 @@
 import { emitWebhookEvent, WEBHOOK_EVENTS } from '@rinjani/core/webhooks';
 import { alertsQueue, neo4jSyncQueue, cveEnrichmentQueue } from '../index';
 import { feedSyncWorker, enrichmentWorker } from './feedWorkers';
+import { feedBatchWorker } from './feedBatchWorker';
 import { aiAnalysisWorker, notificationWorker, alertsWorker } from './utilityWorkers';
 import { neo4jSyncWorker } from './syncWorkers';
 import { cveEnrichmentWorker } from './cveEnrichmentWorker';
@@ -12,7 +13,7 @@ import { createLogger } from '../../lib/logger';
 // Worker Event Handlers (with Webhook Integration)
 // ============================================================================
 
-const workers = [feedSyncWorker, enrichmentWorker, aiAnalysisWorker, notificationWorker, alertsWorker, neo4jSyncWorker, cveEnrichmentWorker, retentionWorker];
+const workers = [feedSyncWorker, enrichmentWorker, feedBatchWorker, aiAnalysisWorker, notificationWorker, alertsWorker, neo4jSyncWorker, cveEnrichmentWorker, retentionWorker];
 
 const evtLog = createLogger('WorkerEvents');
 

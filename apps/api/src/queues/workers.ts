@@ -8,6 +8,10 @@
 // Feed sync + IOC enrichment workers
 export { feedSyncWorker, enrichmentWorker } from './workers/feedWorkers';
 
+// Feed-batch flow parent — stamps `feed_sync_runs.enriched_at` once all
+// per-IOC enrichment children settle.
+export { feedBatchWorker } from './workers/feedBatchWorker';
+
 // AI analysis + notification + alerts workers
 export { aiAnalysisWorker, notificationWorker, alertsWorker, alertStore } from './workers/utilityWorkers';
 

@@ -19,7 +19,9 @@ import { getLastSyncTime, toISOParam } from './delta-sync.js';
 // Configuration
 // =============================================================================
 
-const NVD_API_KEY = process.env.CVE_API_KEY || '';
+// Accept either name — NVD_API_KEY matches NIST's docs, CVE_API_KEY is the
+// legacy codebase name. NVD_API_KEY wins if both are set.
+const NVD_API_KEY = process.env.NVD_API_KEY || process.env.CVE_API_KEY || '';
 const NVD_BASE_URL = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
 const RATE_LIMIT_MS = 6000; // 5 requests per 30 seconds = 6 seconds between requests
 const RESULTS_PER_PAGE = 2000; // Max allowed by NVD API

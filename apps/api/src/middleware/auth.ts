@@ -189,6 +189,32 @@ export async function optionalAuth(c: Context, next: Next) {
         }
     }
 
+    // Cookie fallback — dashboard mirrors the localStorage JWT into a
+    // `rinjani_token` cookie on its own origin so embedded same-origin UIs
+    // (e.g. Workbench at /admin/workbench, proxied through the dashboard's
+    // Next.js rewrite) can ride our session without their own auth layer.
+    // Only consulted if the Authorization header / API key didn't match.
+    if (!c.get('user')) {
+        const cookieHeader = c.req.header('Cookie');
+        if (cookieHeader) {
+            const m = cookieHeader.match(/(?:^|;\s*)rinjani_token=([^;]+)/);
+            if (m) {
+                const payload = verifyJWT(decodeURIComponent(m[1]));
+                if (payload) {
+                    c.set('user', {
+                        id: payload.sub,
+                        name: payload.name,
+                        role: payload.role,
+                        permissions: [],
+                        method: 'jwt',
+                        tenantId: payload.tenantId,
+                        tenantRole: payload.tenantRole,
+                    });
+                }
+            }
+        }
+    }
+
     // Eagerly resolve permissions from DB if user is authenticated
     const user = c.get('user');
     if (user && user.permissions.length === 0) {

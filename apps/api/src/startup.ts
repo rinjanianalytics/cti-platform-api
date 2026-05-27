@@ -149,15 +149,77 @@ export async function bootServices(): Promise<void> {
         log.warn('DB-Listener failed to start', { error: err.message });
     });
 
-    // NOTE: BullMQ workers + WebSearchWorker have been extracted to
-    // apps/worker/src/worker-entry.ts for independent scaling.
-    // Run with: pnpm --filter @rinjani/worker start:workers
+    // ── BullMQ workers, scheduler, work listener, feed-sync daemon ──────
+    //
+    // These used to live in apps/worker/src/worker-entry.ts as a separate
+    // Node process for independent scaling. Merged in-process so a single
+    // `pnpm dev` starts everything. Trade noted in the commit message:
+    // workers now share event-loop time with HTTP handling, and a
+    // worker-side crash takes the API down with it. The bootlock above
+    // still gates this block, so concurrent api instances don't all try
+    // to start workers — only the lock-holder does.
+    Promise.all([
+        import('./queues/workers/workerEvents'),
+        import('./queues/scheduler'),
+        import('./services/workListener'),
+    ]).then(async ([{ startWorkers }, { setupScheduledJobs }, { startWorkListener, triggerEnrichmentSweep }]) => {
+        try {
+            startWorkers();
+            log.info('BullMQ workers started');
+        } catch (err) {
+            log.error('startWorkers failed', err as Error);
+        }
+
+        try {
+            await setupScheduledJobs();
+            log.info('Scheduled BullMQ jobs configured');
+        } catch (err) {
+            log.warn('setupScheduledJobs failed', { error: (err as Error).message });
+        }
+
+        try {
+            await startWorkListener();
+            log.info('Work-driven enrichment listener active');
+            // Boot-time backstop sweeps — catch anything that landed while
+            // the process was offline.
+            const cve = await triggerEnrichmentSweep('cve-enrich');
+            log.info('CVE-enrich backstop sweep queued', { jobId: cve.jobId });
+            const ioc = await triggerEnrichmentSweep('ioc-enrich');
+            log.info('IOC-enrich backstop sweep queued', { enqueued: ioc.enqueued });
+        } catch (err) {
+            log.warn('Work listener setup failed', { error: (err as Error).message });
+        }
+    }).catch(err => {
+        log.error('Worker subsystem boot failed', err as Error);
+    });
+
+    // ── Feed-sync setInterval daemon ────────────────────────────────────
+    // Legacy parallel path to the BullMQ scheduled-jobs feed-sync flow.
+    // Kept for behavioural parity with the old worker-entry; consider
+    // removing once /admin/schedules ownership is the only path used.
+    // Opt out with `ENABLE_FEED_SYNC=false`.
+    if (process.env.ENABLE_FEED_SYNC !== 'false') {
+        import('../../worker/src/feeds/index').then(({ feeds, runAllFeeds }) => {
+            const names = Object.keys(feeds);
+            log.info(`Feed-sync daemon: ${names.length} feeds`, {
+                feeds: names.map(k => `${feeds[k as keyof typeof feeds].name}@${feeds[k as keyof typeof feeds].interval / 60000}min`),
+            });
+            runAllFeeds().catch(err => log.error('Initial feed sync failed', err as Error));
+            for (const [, feed] of Object.entries(feeds)) {
+                setInterval(async () => {
+                    try {
+                        await feed.sync();
+                    } catch (err) {
+                        log.error(`Feed sync failed: ${feed.name}`, err as Error);
+                    }
+                }, feed.interval);
+            }
+        }).catch(err => {
+            log.warn('Feed-sync daemon disabled (import failed)', { error: (err as Error).message });
+        });
+    }
 
     setupGracefulShutdown();
-
-    // NOTE: Scheduled jobs (cron-like repeatable BullMQ jobs) have been
-    // extracted to apps/worker/src/worker-entry.ts.
-    // Run with: pnpm --filter @rinjani/worker start:workers
 
     // Register playbook evaluator as webhook event listener
     Promise.all([
@@ -192,12 +254,23 @@ function setupGracefulShutdown(): void {
         import('./services/redis'),
         import('./services/eventBus'),
         import('./services/eventStream'),
-    ]).then(([{ shutdownAll }, { shutdownRedis }, { eventBus }, { eventStream }]) => {
+        // Workers + work listener are best-effort during shutdown — if the
+        // import failed at boot we still want SIGTERM to drain the DB pool.
+        import('./queues/workers/workerEvents').catch(() => null),
+        import('./services/workListener').catch(() => null),
+    ]).then(([{ shutdownAll }, { shutdownRedis }, { eventBus }, { eventStream }, workerEvents, workListener]) => {
         const shutdown = async (signal: string) => {
             log.info(`Received ${signal}, shutting down gracefully...`);
             // Release bootlock FIRST so the next process can claim it
             // before we tear down the Redis connection.
             await releaseBootLock();
+            // Stop workers + work listener before tearing down Redis so
+            // they can finish their in-flight jobs / close their BullMQ
+            // connections cleanly.
+            await Promise.allSettled([
+                workerEvents?.stopWorkers?.(),
+                workListener?.stopWorkListener?.(),
+            ]);
             await Promise.allSettled([
                 shutdownAll(),
                 shutdownRedis(),

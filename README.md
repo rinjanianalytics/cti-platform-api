@@ -191,8 +191,12 @@ pnpm --filter @rinjani/worker sync:alienvault
 ### Daemon Mode
 
 ```bash
-# Continuous sync (every hour)
-pnpm --filter @rinjani/worker dev
+# Workers + scheduler + feed-sync daemon now run inside the API process.
+# `pnpm dev` at the repo root starts everything as a single Node runtime.
+pnpm dev
+
+# Legacy standalone feed-only daemon (kept for emergency use, no BullMQ):
+pnpm --filter @rinjani/worker dev:standalone
 ```
 
 ---

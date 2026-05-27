@@ -9,7 +9,9 @@ import { db } from '@rinjani/db';
 import { vulnerabilities } from '@rinjani/db/schema';
 import { eq, isNull, and } from '@rinjani/db';
 
-const NVD_API_KEY = process.env.CVE_API_KEY || '';
+// Accept either name — NVD_API_KEY matches NIST's docs, CVE_API_KEY is the
+// legacy codebase name. NVD_API_KEY wins if both are set.
+const NVD_API_KEY = process.env.NVD_API_KEY || process.env.CVE_API_KEY || '';
 const NVD_BASE_URL = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
 const RATE_LIMIT_MS = 700; // Slightly faster with API key for single CVE lookups
 const BATCH_SIZE = 50; // How many CVEs to enrich per run

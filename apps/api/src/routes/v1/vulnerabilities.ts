@@ -326,6 +326,6 @@ router.post('/vulnerabilities/enrich/bulk', requireAuth, requireRole('admin'), a
     });
 });
 
-const NVD_API_KEY_PRESENT = !!(process.env.CVE_API_KEY || process.env.NVD_API_KEY);
+const NVD_API_KEY_PRESENT = !!(process.env.NVD_API_KEY || process.env.CVE_API_KEY);
 
 export default router;

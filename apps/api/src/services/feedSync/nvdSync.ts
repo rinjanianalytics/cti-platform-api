@@ -13,7 +13,10 @@ import type { OTXSyncOptions, SyncResult } from './types';
 
 const log = createLogger('FeedSync:nvd');
 
-const NVD_API_KEY = process.env.CVE_API_KEY || '';
+// Accept either name — NVD_API_KEY matches NIST's own docs / portal, while
+// CVE_API_KEY is the legacy name this codebase used first. Either resolves
+// the same key; NVD_API_KEY wins if both are set.
+const NVD_API_KEY = process.env.NVD_API_KEY || process.env.CVE_API_KEY || '';
 const NVD_BASE_URL = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
 const RESULTS_PER_PAGE = 2000;
 const RATE_LIMIT_MS = 6000;

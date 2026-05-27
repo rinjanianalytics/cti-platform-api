@@ -6,7 +6,7 @@
 - **PostgreSQL** 16+
 - **Redis** 7+
 - **OpenSearch** 2.x (optional, for vector search)
-- **Docker** \u0026 **Docker Compose** (for containerized deployment)
+- **Docker**  **Docker Compose** (for containerized deployment)
 
 ---
 

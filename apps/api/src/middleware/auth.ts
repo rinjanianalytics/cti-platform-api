@@ -11,7 +11,7 @@
 import type { Context, Next } from 'hono';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { createHmac } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 
 // ============================================================================
 // Configuration
@@ -121,12 +121,24 @@ export function verifyJWT(token: string): JWTPayload | null {
             .update(`${headerB64}.${payloadB64}`)
             .digest('base64url');
 
-        if (signature !== expectedSignature) return null;
+        // Constant-time comparison — a plain `!==` leaks how many leading
+        // bytes matched via timing, which is the textbook way to forge an
+        // HMAC byte-by-byte. Bail early only on length mismatch (that's not
+        // secret-dependent), then timingSafeEqual the equal-length buffers.
+        const sigBuf = Buffer.from(signature);
+        const expBuf = Buffer.from(expectedSignature);
+        if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
+            return null;
+        }
 
         const payload: JWTPayload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
 
+        // Reject expired tokens. A token with no `exp` claim is treated as
+        // expired rather than eternal — every token this service issues sets
+        // `exp`, so a missing one means it wasn't minted by us (or is a
+        // pre-expiry-enforcement relic we don't want to honour forever).
         const now = Math.floor(Date.now() / 1000);
-        if (payload.exp && payload.exp < now) return null;
+        if (!payload.exp || payload.exp < now) return null;
 
         return payload;
     } catch {

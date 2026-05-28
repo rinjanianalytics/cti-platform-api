@@ -45,23 +45,23 @@ router.post('/federation/tenants', requireAuth, requireRole('admin'), async (c) 
 });
 
 router.get('/federation/tenants/:id', requireAuth, requireRole('admin'), async (c) => {
-    const tenant = await getTenant(c.req.param('id'));
-    if (!tenant) throw new NotFoundError('Tenant', c.req.param('id'));
+    const tenant = await getTenant(c.req.param('id')!);
+    if (!tenant) throw new NotFoundError('Tenant', c.req.param('id')!);
     return c.json({ success: true, data: tenant });
 });
 
 router.post('/federation/tenants/:id/suspend', requireAuth, requireRole('admin'), async (c) => {
-    await suspendTenant(c.req.param('id'));
+    await suspendTenant(c.req.param('id')!);
     return c.json({ success: true, message: 'Tenant suspended' });
 });
 
 router.post('/federation/tenants/:id/reactivate', requireAuth, requireRole('admin'), async (c) => {
-    await reactivateTenant(c.req.param('id'));
+    await reactivateTenant(c.req.param('id')!);
     return c.json({ success: true, message: 'Tenant reactivated' });
 });
 
 router.patch('/federation/tenants/:id', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!;
     const body = await c.req.json<{ tier?: string; config?: Record<string, unknown> }>();
     const updated = await updateTenantConfig(id, body);
     return c.json({ success: true, data: updated });
@@ -69,30 +69,30 @@ router.patch('/federation/tenants/:id', requireAuth, requireRole('admin'), async
 
 // Peers
 router.get('/federation/tenants/:id/peers', requireAuth, requireRole('admin'), async (c) => {
-    const peers = await listPeers(c.req.param('id'));
+    const peers = await listPeers(c.req.param('id')!);
     return c.json({ success: true, data: peers });
 });
 
 router.post('/federation/tenants/:id/peers', requireAuth, requireRole('admin'), async (c) => {
     const { name, url, apiKey, trustLevel } = AddPeerSchema.parse(await c.req.json());
-    const peer = await addPeer(c.req.param('id'), name, url, apiKey, trustLevel);
+    const peer = await addPeer(c.req.param('id')!, name, url, apiKey, trustLevel);
     return c.json({ success: true, data: peer }, 201);
 });
 
 router.post('/federation/peers/:peerId/test', requireAuth, requireRole('admin'), async (c) => {
-    const result = await testPeerConnection(c.req.param('peerId'));
+    const result = await testPeerConnection(c.req.param('peerId')!);
     return c.json({ success: true, data: result });
 });
 
 // Tenant Members
 router.get('/federation/tenants/:id/members', requireAuth, requireRole('admin'), async (c) => {
-    const members = await listTenantMembers(c.req.param('id'));
+    const members = await listTenantMembers(c.req.param('id')!);
     return c.json({ success: true, data: members });
 });
 
 router.post('/federation/tenants/:id/members', requireAuth, requireRole('admin'), async (c) => {
     const body = await c.req.json<{ userId?: string; email?: string; name?: string; role?: string }>();
-    const tenantId = c.req.param('id');
+    const tenantId = c.req.param('id')!;
     const role = body.role || 'viewer';
 
     // Invite mode: create user + join tenant + KC sync
@@ -108,14 +108,14 @@ router.post('/federation/tenants/:id/members', requireAuth, requireRole('admin')
 });
 
 router.delete('/federation/tenants/:id/members/:userId', requireAuth, requireRole('admin'), async (c) => {
-    await removeTenantMember(c.req.param('id'), c.req.param('userId'));
+    await removeTenantMember(c.req.param('id')!, c.req.param('userId')!);
     return c.json({ success: true, message: 'Member removed' });
 });
 
 router.patch('/federation/tenants/:id/members/:userId/role', requireAuth, requireRole('admin'), async (c) => {
     const { role } = await c.req.json<{ role: string }>();
     if (!role) return c.json({ success: false, error: 'role is required' }, 400);
-    await updateMemberRole(c.req.param('id'), c.req.param('userId'), role);
+    await updateMemberRole(c.req.param('id')!, c.req.param('userId')!, role);
     return c.json({ success: true, message: 'Role updated' });
 });
 
@@ -156,7 +156,7 @@ router.get('/scoring/summary', requireAuth, requireRole('admin'), async (c) => {
 });
 
 router.get('/scoring/ioc/:id', requireAuth, requireRole('admin'), async (c) => {
-    const score = await computeCompositeScore(c.req.param('id'));
+    const score = await computeCompositeScore(c.req.param('id')!);
     return c.json({ success: true, data: score });
 });
 

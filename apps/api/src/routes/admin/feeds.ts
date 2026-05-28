@@ -77,7 +77,7 @@ router.get('/feeds', requireAuth, requireRole('admin', 'auditor'), async (c) => 
 
 /** GET /admin/feeds/:feedId/history — newest-first run history. */
 router.get('/feeds/:feedId/history', requireAuth, requireRole('admin', 'auditor'), async (c) => {
-    const feedId = c.req.param('feedId');
+    const feedId = c.req.param('feedId')!; // route-guaranteed by :feedId pattern
     const limit = Math.min(Math.max(Number(c.req.query('limit')) || 20, 1), 200);
     const runs = await getFeedSyncHistory(feedId, limit);
     return c.json({ success: true, data: { feedId, runs, count: runs.length } });

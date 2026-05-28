@@ -43,9 +43,12 @@ const queueMap: Record<string, Queue> = {
     'maintenance': maintenanceQueue,
 };
 
-function getQueue(name: string): Queue {
-    const queue = queueMap[name];
-    if (!queue) throw new NotFoundError('Queue', name);
+// Accepts `string | undefined` so route-param uses (hono ≥4.12 widened
+// `c.req.param()` to possibly-undefined) flow through without a `!`. A
+// missing/unknown name yields a clean 404 instead of a downstream crash.
+function getQueue(name: string | undefined): Queue {
+    const queue = name ? queueMap[name] : undefined;
+    if (!queue) throw new NotFoundError('Queue', name ?? '<missing>');
     return queue;
 }
 
@@ -187,7 +190,7 @@ router.get('/queue/:name/jobs', requireAuth, async (c) => {
 /** DELETE /queue/:name/job/:jobId — Remove a specific job */
 router.delete('/queue/:name/job/:jobId', requireAuth, requireRole('admin'), async (c) => {
     const queue = getQueue(c.req.param('name'));
-    const jobId = c.req.param('jobId');
+    const jobId = c.req.param('jobId')!; // route-guaranteed by :jobId pattern
 
     const job = await queue.getJob(jobId);
     if (!job) throw new NotFoundError('Job', jobId);
@@ -203,7 +206,7 @@ router.delete('/queue/:name/job/:jobId', requireAuth, requireRole('admin'), asyn
 /** POST /queue/:name/job/:jobId/retry — Retry a single failed job */
 router.post('/queue/:name/job/:jobId/retry', requireAuth, requireRole('admin'), async (c) => {
     const queue = getQueue(c.req.param('name'));
-    const jobId = c.req.param('jobId');
+    const jobId = c.req.param('jobId')!; // route-guaranteed by :jobId pattern
 
     const job = await queue.getJob(jobId);
     if (!job) throw new NotFoundError('Job', jobId);
@@ -226,7 +229,7 @@ router.post('/queue/:name/job/:jobId/retry', requireAuth, requireRole('admin'), 
  */
 router.post('/queue/:name/job/:jobId/promote', requireAuth, requireRole('admin'), async (c) => {
     const queue = getQueue(c.req.param('name'));
-    const jobId = c.req.param('jobId');
+    const jobId = c.req.param('jobId')!; // route-guaranteed by :jobId pattern
 
     const job = await queue.getJob(jobId);
     if (!job) throw new NotFoundError('Job', jobId);
@@ -242,7 +245,7 @@ router.post('/queue/:name/job/:jobId/promote', requireAuth, requireRole('admin')
 /** GET /queue/:name/job/:jobId — Fetch one job's detail (any queue) */
 router.get('/queue/:name/job/:jobId', requireAuth, async (c) => {
     const queue = getQueue(c.req.param('name'));
-    const jobId = c.req.param('jobId');
+    const jobId = c.req.param('jobId')!; // route-guaranteed by :jobId pattern
 
     const job = await queue.getJob(jobId);
     if (!job) throw new NotFoundError('Job', jobId);

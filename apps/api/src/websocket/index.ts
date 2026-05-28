@@ -230,6 +230,7 @@ wsApp.post('/ws/unsubscribe', async (c: Context) => {
 // Poll for messages (long-polling alternative)
 wsApp.get('/ws/poll/:clientId', (c: Context) => {
     const clientId = c.req.param('clientId');
+    if (!clientId) return c.json({ success: false, error: 'clientId required' }, 400);
     const messages = wsManager.getMessages(clientId);
     return c.json({
         success: true,

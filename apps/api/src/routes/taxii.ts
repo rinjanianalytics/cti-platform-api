@@ -194,7 +194,7 @@ taxiiRouter.get('/collections/', (c) => {
 });
 
 taxiiRouter.get('/collections/:id', (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const collection = COLLECTIONS.find(col => col.id === id);
 
     if (!collection) {
@@ -213,7 +213,7 @@ taxiiRouter.get('/collections/:id', (c) => {
 // ============================================================================
 
 taxiiRouter.get('/collections/:id/objects/', taxiiAuth, async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const collection = COLLECTIONS.find(col => col.id === id);
 
     if (!collection || !collection.can_read) {
@@ -275,7 +275,7 @@ taxiiRouter.get('/collections/:id/objects/', taxiiAuth, async (c) => {
 // ============================================================================
 
 taxiiRouter.post('/collections/:id/objects/', taxiiAuth, async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const collection = COLLECTIONS.find(col => col.id === id);
 
     if (!collection || !collection.can_write) {
@@ -330,7 +330,7 @@ taxiiRouter.post('/collections/:id/objects/', taxiiAuth, async (c) => {
 // ============================================================================
 
 taxiiRouter.get('/collections/:id/manifest/', taxiiAuth, async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const collection = COLLECTIONS.find(col => col.id === id);
 
     if (!collection || !collection.can_read) {

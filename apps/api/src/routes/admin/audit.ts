@@ -104,7 +104,7 @@ router.get('/audit/stats', requireAuth, requireRole('admin', 'auditor'), async (
 
 /** GET /audit/:id — Single audit entry with full diff */
 router.get('/audit/:id', requireAuth, requireRole('admin', 'auditor'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
 
     const rows = await db.select().from(auditLogs).where(eq(auditLogs.id, id)).limit(1);
     if (!rows[0]) {

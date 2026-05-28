@@ -53,6 +53,14 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # `packages/workbench-core` ships its declarations from `dist/index.d.ts`,
+      # which is gitignored (built artifact). Without it, every dependent
+      # typecheck below errors with `Cannot find module '@rinjani/workbench-core'`.
+      # `build:lib` is the tsup step only (~3s) — we skip the heavier Vite UI
+      # build since the typecheck doesn't need the bundled UI assets.
+      - name: Build workbench-core lib (declarations)
+        run: pnpm --filter @rinjani/workbench-core run build:lib
+
       - name: Typecheck (api)
         run: pnpm --filter @rinjani/api exec tsc --noEmit
 
@@ -113,6 +121,11 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      # Same reason as in the lint job — apps/api imports `@rinjani/workbench-core`
+      # and vitest will fail at module load if the dist isn't present.
+      - name: Build workbench-core lib
+        run: pnpm --filter @rinjani/workbench-core run build:lib
 
       - name: Run migrations
         run: pnpm --filter @rinjani/db migrate

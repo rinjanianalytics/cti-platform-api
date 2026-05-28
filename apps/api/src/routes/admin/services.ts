@@ -40,7 +40,18 @@ router.get('/services', async (c) => {
         probeNeo4j(),
         getQueueStats().catch(() => []),
         probeWorkers(),
-        getBootLockOwner().catch(() => ({ owner: null, self: '?', isUs: false })),
+        // Fallback shape must mirror `getBootLockOwner`'s return so the
+        // response builder below can read `bootlock.state` / `bootlock.error`
+        // off either arm. `state: 'error'` is the "Redis was unreachable
+        // even at the probe-wrapping layer" signal — distinct from the
+        // function's own error branch which sets the same state.
+        getBootLockOwner().catch(() => ({
+            owner: null,
+            self: '?',
+            isUs: false,
+            state: 'error' as const,
+            error: 'probe threw before getBootLockOwner could classify',
+        })),
         probeFeedHealth(),
         probeOptionalServices(),
         probeEnrichmentSources(),

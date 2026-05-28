@@ -1,12 +1,15 @@
-# V3 Threat Intelligence Platform - Deployment Guide
+# V3 Rinjani CTI — Deployment Guide
+
+By [RinjaniAnalytics](https://rinjanianalytics.com). Pairs with the [v304 dashboard](https://github.com/rinjanianalytics/v304-dashboard-rinjani).
 
 ## Prerequisites
 
-- **Node.js** 20+ or **Bun** 1.0+
-- **PostgreSQL** 16+
-- **Redis** 7+
-- **OpenSearch** 2.x (optional, for vector search)
-- **Docker**  **Docker Compose** (for containerized deployment)
+- **Node.js** 20+ — Tailwind 4 / `@tailwindcss/oxide` native binding for the embedded Workbench UI build won't resolve on Node 18
+- **PostgreSQL** 16+ — canonical store
+- **Redis** 7+ — both queues (port 6380 in dev) and cache (port 6381 in dev); one instance works, but separating them lets BullMQ tune AOF independently from the cache's LRU eviction
+- **OpenSearch** 2.x — full-text + vector search; required for `/v2/search`, similar-entity lookup, and the OpenSearch event-stream consumer group
+- **Neo4j** 5.x — actor/IOC/vuln/technique relationship graph; required by `/graph` and the `neo4j-sync` event-stream consumer
+- **Docker** & **Docker Compose** — all four datastores bundled in `docker-compose.yml`
 
 ---
 
@@ -188,6 +191,42 @@ Helm chart includes CronJobs for:
 ```bash
 curl http://localhost:3001/health
 ```
+
+### Workbench — pipeline + queue dashboard
+
+Browse to **`http://${DASHBOARD_URL}/admin/workbench`** while signed in as an
+admin. The dashboard's Next.js rewrite proxies `/admin/workbench/*` same-origin
+to the API, so the `rinjani_token` session cookie auto-authenticates Workbench
+without a second login.
+
+What's exposed:
+
+| Tab | What it shows | When to use |
+|-----|---------------|-------------|
+| Overview | counts across all queues | health at a glance |
+| Queues | per-queue depth + workers | spot a worker outage |
+| Jobs | search + filter by status, tags (`source`, `feedId`, `iocId`, `cveId`) | post-mortem a specific run |
+| Flows | parent/child DAG per feed-sync batch | confirm enrichment fan-out fired |
+| Schedulers | the 13 cron-driven jobs + their next-fire times | adjust cadence (Edit / Run now / Disable per row) |
+
+Schedule edits delegate to our own control plane (`scheduledJobOverrides` +
+`reconcileScheduledJob`), so they survive the API boot reconcile loop. Both the
+Workbench Schedulers tab and the native `/admin/schedules` dashboard page write
+through the same backend.
+
+Set `WORKBENCH_READONLY=true` in `.env` to hide retry / remove / promote
+actions for low-trust admins.
+
+### Service-health probe (one round-trip)
+
+```bash
+curl http://localhost:3001/admin/services -H "Authorization: Bearer ${JWT}"
+```
+
+Aggregates Postgres / OpenSearch / Neo4j / Redis (queue+cache) connectivity,
+BullMQ queue depths, worker liveness, bootlock state, recent feed-sync
+results, LLM provider configuration, and OSV/NVD enrichment-source status.
+The dashboard's `/admin/services` page renders all of it on one screen.
 
 ### Metrics (OpenTelemetry)
 
@@ -371,6 +410,8 @@ manual migration step required.
 
 ## Support
 
-- **Documentation**: See README.md
-- **Issues**: GitHub Issues
-- **Architecture**: See README.md
+- **Website**: [rinjanianalytics.com](https://rinjanianalytics.com)
+- **Email**: [rinjanianalytics@gmail.com](mailto:rinjanianalytics@gmail.com)
+- **Documentation**: See [README.md](README.md) (features + architecture) and [SECURITY_AUDIT.md](SECURITY_AUDIT.md) (latest dependency review)
+- **Issues**: [GitHub Issues](https://github.com/rinjanianalytics/v3-backend-api-rinjani/issues)
+- **Dashboard repo**: [v304-dashboard-rinjani](https://github.com/rinjanianalytics/v304-dashboard-rinjani)

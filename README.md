@@ -1,22 +1,28 @@
-# V3 Threat Intelligence Platform
+# V3 Rinjani CTI — Backend
 
-**Modern, standalone threat intelligence backend with direct feed integration.**
+**Modern, standalone threat intelligence backend with direct feed integration, embedded BullMQ pipeline monitoring, and a multi-tenant federation layer.**
+
+By [RinjaniAnalytics](https://rinjanianalytics.com) — paired with the [v304 dashboard](https://github.com/rinjanianalytics/v304-dashboard-rinjani).
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)](https://nodejs.org/)
+[![Hono](https://img.shields.io/badge/Hono-4.x-orange)](https://hono.dev/)
+[![Drizzle](https://img.shields.io/badge/Drizzle-ORM-c5f74f?labelColor=000)](https://orm.drizzle.team/)
+[![BullMQ](https://img.shields.io/badge/BullMQ-5.x-red)](https://bullmq.io/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
 ## 🚀 Features
 
-- **100% Independent** - Standalone threat intelligence platform
-- **Direct Feed Sync** - CISA KEV, AlienVault OTX, MITRE ATT&CK
-- **Modern Stack** - Hono, Drizzle ORM, PostgreSQL, OpenSearch
-- **Type-Safe** - Full TypeScript with tRPC
-- **Production Ready** - Docker, Kubernetes, CI/CD
-- **Real-time** - WebSocket subscriptions
-- **Monitored** - OpenTelemetry integration
+- **Direct feed sync, no middlemen** — CISA KEV · NVD · CVE.org cvelistV5 · MITRE ATT&CK · MISP Galaxy · AlienVault OTX · abuse.ch SSL/ThreatFox/URLhaus/MalwareBazaar · OpenPhish
+- **Polyglot storage** — Postgres (Drizzle ORM) for the canonical store, OpenSearch for full-text + vector search, Neo4j for the threat-relationship graph, Redis for queues + cache
+- **Pipeline orchestration** — BullMQ workers with `FlowProducer` parent/child graphs, scheduled jobs, work-driven enrichment via Postgres `NOTIFY`
+- **Embedded Workbench BullMQ dashboard** — vendored fork at `/admin/workbench` with custom scheduler edit/run-now/disable actions delegating to our control plane (see [packages/workbench-core/](packages/workbench-core/))
+- **TAXII 2.1 server** for downstream STIX consumers, alongside REST v1, REST v2, GraphQL (Pothos), and WebSocket subscriptions
+- **Multi-tenant federation** — tenant schemas, peer connections, trust-level scoring
+- **Type-safe end-to-end** — full TypeScript, Drizzle inferred schemas, zod validation at edges
+- **Production-ready** — Docker, Kubernetes Helm chart, OpenTelemetry instrumentation, cross-process bootlock for safe HA
 
 ---
 
@@ -35,28 +41,41 @@
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│         V3 Backend (Standalone)         │
-├─────────────────────────────────────────┤
-│  API Server (3001)    Worker (Daemon)  │
-│         │                    │          │
-│         └────────┬───────────┘          │
-│                  │                      │
-│         ┌────────▼────────┐             │
-│         │  PostgreSQL DB  │             │
-│         │   (rinjani_v3)  │             │
-│         └─────────────────┘             │
-└─────────────────────────────────────────┘
-                   ▲
-                   │
-      ┌────────────┴────────────┐
-      │  Public Threat Feeds    │
-      ├─────────────────────────┤
-      │  • CISA KEV             │
-      │  • AlienVault OTX       │
-      │  • MITRE ATT&CK         │
-      └─────────────────────────┘
+                         ┌───────────────────────────┐
+                         │      Dashboard (3000)     │
+                         │   Next.js + shadcn/ui     │
+                         └──────────────┬────────────┘
+                                        │  (same-origin proxy)
+                  ┌─────────────────────┼─────────────────────┐
+                  ▼                     ▼                     ▼
+        ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+        │  Gateway (4000) │   │   API (3001)    │   │ /admin/workbench│
+        │  GraphQL Mesh   │   │   Hono + REST   │   │  BullMQ ops UI  │
+        │  Stitched APIs  │   │   GraphQL + WS  │   │  (vendored fork)│
+        └─────────────────┘   └────────┬────────┘   └─────────────────┘
+                                       │
+                            BullMQ workers + scheduler
+                            + feed-sync daemon + work
+                            listener — in-process (one
+                            Node runtime, bootlock-gated)
+                                       │
+   ┌───────────────────────────────────┼───────────────────────────────────┐
+   ▼               ▼                   ▼                   ▼               ▼
+┌──────┐   ┌──────────────┐   ┌────────────────┐   ┌──────────────┐   ┌────────┐
+│ PG   │   │  OpenSearch  │   │     Neo4j      │   │    Redis     │   │ TAXII  │
+│ canon│   │   FTS+vector │   │   relationship │   │ queue + cache│   │  2.1   │
+└──────┘   └──────────────┘   └────────────────┘   └──────────────┘   └────────┘
+                                       ▲
+                                       │
+                            ┌──────────┴───────────┐
+                            │  Direct Threat Feeds │
+                            │  CISA · NVD · CVE.org│
+                            │  MITRE · OTX · MISP  │
+                            │  abuse.ch × 4 · etc. │
+                            └──────────────────────┘
 ```
+
+Workers used to run as a separate `apps/worker` process; they're now folded into the API process (single `pnpm dev` runtime) with a Redis advisory bootlock so concurrent api+gateway processes don't double-schedule. `apps/worker` is kept as a build target for the `dev:standalone` daemon + one-off `sync:*` CLIs.
 
 ---
 
@@ -105,28 +124,24 @@ pnpm dev
 ```
 v3-backend-api-rinjani/
 ├── apps/
-│   ├── api/                 # Hono API server
-│   │   ├── src/
-│   │   │   ├── routes/      # REST endpoints
-│   │   │   ├── graphql/     # GraphQL schema
-│   │   │   ├── middleware/  # Auth, CORS, rate limiting
-│   │   │   └── websocket/   # Real-time subscriptions
-│   │   └── Dockerfile
-│   ├── worker/              # Feed sync worker
-│   │   ├── src/
-│   │   │   ├── feeds/       # CISA, AlienVault, MITRE
-│   │   │   ├── core/        # Plugin system
-│   │   │   └── plugins/     # Custom feed plugins
-│   │   └── Dockerfile
-│   └── dashboard/           # Static HTML dashboard
+│   ├── api/                 # Hono REST + GraphQL + WS + workers (port 3001)
+│   │   └── src/
+│   │       ├── routes/      # REST endpoints (v1, v2, /admin/*, /auth/*, /taxii/*)
+│   │       ├── graphql/     # Pothos schema + resolvers
+│   │       ├── middleware/  # Auth (JWT + cookie), CORS, rate limiting
+│   │       ├── websocket/   # Real-time subscriptions
+│   │       ├── queues/      # BullMQ workers + scheduler + FlowProducer wiring
+│   │       └── services/    # Feed sync, enrichment, federation, neo4j, OTel
+│   ├── gateway/             # GraphQL Mesh stitched-API gateway (port 4000)
+│   ├── worker/              # CLI helpers + emergency standalone daemon
+│   └── dashboard-static/    # Tiny static landing page (real UI lives in v304-dashboard)
 ├── packages/
-│   ├── db/                  # Drizzle ORM schemas
-│   │   └── src/schema/      # Database tables
-│   └── core/                # Shared services & types
-├── helm/                    # Kubernetes Helm chart
-│   └── v3-threat-intel/
-├── .github/workflows/       # CI/CD pipeline
-├── docker-compose.yml       # Development stack
+│   ├── core/                # Shared services & types
+│   ├── db/                  # Drizzle ORM schemas + migrations
+│   └── workbench-core/      # Vendored fork of @getworkbench/core
+│                            # (BullMQ ops UI mounted at /admin/workbench)
+├── helm/v3-threat-intel/    # Kubernetes Helm chart
+├── docker-compose.yml       # Development stack (PG + OpenSearch + Redis × 2 + Neo4j)
 └── .env.example             # Environment template
 ```
 
@@ -255,6 +270,39 @@ pnpm --filter @rinjani/worker test
 curl http://localhost:3001/health
 ```
 
+### Workbench — embedded pipeline dashboard
+
+Mounted at **`/admin/workbench`** (proxied same-origin through the dashboard's
+Next.js rewrite, so a logged-in admin session authenticates it automatically —
+no second login).
+
+Vendored fork of [`@getworkbench/core`](https://github.com/pontusab/workbench)
+under [`packages/workbench-core/`](packages/workbench-core/) — we added
+scheduler edit / disable / run-now actions that delegate to our own
+`reconcileScheduledJob` control plane (raw BullMQ writes would be clobbered
+by our boot-time reconcile loop).
+
+What you see:
+- **Overview / Queues / Jobs** — depth, throughput, failures across the
+  `feed-sync`, `ioc-enrichment`, `feed-batch`, `cve-enrichment`, `alerts`,
+  `notifications`, `neo4j-sync`, `ai-analysis`, `maintenance` queues
+- **Flows** — `FlowProducer` parent/child graphs (each feed-sync builds one
+  parent `batch-<runId>` in `feed-batch` plus N enrichment children — see
+  [`apps/api/src/queues/workers/feedSyncWorker.ts`](apps/api/src/queues/workers/feedSyncWorker.ts))
+- **Schedulers** — 13 cron entries from [`apps/api/src/queues/scheduler.ts`](apps/api/src/queues/scheduler.ts)
+  with our kebab-menu actions (Edit interval / Run now / Disable). The native
+  [`/admin/schedules`](https://github.com/rinjanianalytics/v304-dashboard-rinjani/blob/main/src/app/(app)/admin/schedules/page.tsx)
+  page in the dashboard shares the same backend so edits stay consistent
+  between both UIs
+
+### Service-health probe
+
+`GET /admin/services` returns a single JSON envelope with Postgres /
+OpenSearch / Neo4j / Redis (queue+cache) connectivity, BullMQ queue depths,
+worker liveness, bootlock state, feed-sync status, LLM provider
+configuration, and enrichment-source health. The dashboard's
+`/admin/services` page renders all of it in one pane.
+
 ### OpenTelemetry
 
 ```bash
@@ -328,5 +376,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 📞 Support
 
+- **Website**: [rinjanianalytics.com](https://rinjanianalytics.com)
+- **Email**: [rinjanianalytics@gmail.com](mailto:rinjanianalytics@gmail.com)
+- **Dashboard repo**: [v304-dashboard-rinjani](https://github.com/rinjanianalytics/v304-dashboard-rinjani)
 - **Issues**: [GitHub Issues](https://github.com/rinjanianalytics/v3-backend-api-rinjani/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/rinjanianalytics/v3-backend-api-rinjani/discussions)

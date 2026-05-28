@@ -11,7 +11,7 @@
  */
 
 import { createLogger } from './lib/logger';
-import { tryAcquireBootLock, releaseBootLock } from './lib/bootlock';
+import { tryAcquireBootLock, releaseBootLock, startBootLockReclaim } from './lib/bootlock';
 
 const log = createLogger('Boot');
 
@@ -23,8 +23,24 @@ export async function bootServices(): Promise<void> {
         // Still want SIGTERM/SIGINT to close DB/Redis connections cleanly,
         // even though we never booted background services here.
         setupGracefulShutdown();
+        // If the previous holder dies without a graceful release (notably
+        // tsx-watch SIGKILLing on reload), the 30s TTL eventually expires and
+        // services would stay orphaned. Poll for reclaim so this process can
+        // pick up where the dead one left off.
+        startBootLockReclaim(() => bootOwnerOnlyServices());
         return;
     }
+    await bootOwnerOnlyServices();
+}
+
+/**
+ * Everything below was originally inline in `bootServices`. It's the set of
+ * services that should run in exactly ONE process across the api+gateway
+ * pair — migrations, worker pool, scheduler, feed-sync daemon, etc. Pulled
+ * out so the reclaim path can run the same block when a non-owner process
+ * later acquires the lock (see `startBootLockReclaim` in `lib/bootlock.ts`).
+ */
+async function bootOwnerOnlyServices(): Promise<void> {
 
     // Run pending database migrations before anything else
     import('./services/migrations').then(({ autoMigrateOnStartup }) => {

@@ -64,6 +64,13 @@ router.get('/services', async (c) => {
             process: {
                 bootlockOwner: bootlock.owner,
                 bootlockHeldByThisProcess: bootlock.isUs,
+                // `state` distinguishes a real "no one holds it right now"
+                // (background services orphaned, reclaim poller will retry)
+                // from a "Redis is unreachable, we can't tell". The dashboard
+                // uses this to render an actionable message instead of just
+                // "Nobody holds the lock".
+                bootlockState: bootlock.state,
+                bootlockError: bootlock.error,
                 workerActive,
                 totalConnectedWorkers: totalWorkers,
                 workersByQueue,
@@ -110,17 +117,21 @@ async function probeOpenSearch(): Promise<{ connected: boolean; latencyMs?: numb
     }
 }
 
-async function probeNeo4j(): Promise<{ connected: boolean; latencyMs?: number; error?: string }> {
+async function probeNeo4j(): Promise<{ connected: boolean; latencyMs?: number; serverInfo?: string; error?: string }> {
     const t0 = Date.now();
     try {
-        const neo = await import('../../services/neo4j').catch(() => null);
-        if (!neo) return { connected: false, error: 'module not available' };
-        // Best-effort — different codebases expose different probe helpers.
-        // If a checkHealth function exists, use it; otherwise mark unknown.
-        const fn = (neo as { checkHealth?: () => Promise<{ connected: boolean }> }).checkHealth;
-        if (!fn) return { connected: false, error: 'no health probe' };
-        const r = await fn();
-        return { connected: r.connected, latencyMs: Date.now() - t0 };
+        // checkNeo4jHealth is the real export from services/neo4j/driver.ts —
+        // re-exported via services/neo4j.ts barrel. An earlier version of this
+        // probe looked for a non-existent `checkHealth` and always returned
+        // "no health probe", which silently broke the dashboard Datastores
+        // panel for Neo4j even when the driver was healthy.
+        const { checkNeo4jHealth } = await import('../../services/neo4j');
+        const r = await checkNeo4jHealth();
+        return {
+            connected: r.connected,
+            latencyMs: Date.now() - t0,
+            ...(r.serverInfo ? { serverInfo: r.serverInfo } : {}),
+        };
     } catch (err) {
         return { connected: false, error: (err as Error).message };
     }

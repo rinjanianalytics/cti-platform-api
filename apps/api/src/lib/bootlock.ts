@@ -71,21 +71,75 @@ export async function tryAcquireBootLock(): Promise<boolean> {
 
 /**
  * Read-only — who currently owns the bootlock? Useful for admin dashboards
- * that want to show "background services are running on host:pid". Returns
- * null if no one holds the lock or Redis is unavailable.
+ * that want to show "background services are running on host:pid".
+ *
+ * Returns one of three states:
+ *  - `held`   — someone owns the lock (string `owner` is the holder id)
+ *  - `unowned` — Redis is reachable but nothing holds the lock; background
+ *               services are effectively offline until a process reclaims
+ *  - `error`  — Redis itself is unreachable, so we can't tell. Different
+ *               from `unowned`: don't render "no holder" if we can't see.
+ *
+ * The `owner`/`isUs` fields stay populated for the held case so existing
+ * dashboard rendering keeps working.
  */
 export async function getBootLockOwner(): Promise<{
     owner: string | null;
     self: string;
     isUs: boolean;
+    state: 'held' | 'unowned' | 'error';
+    error?: string;
 }> {
     const r = getCacheConnection();
     try {
         const owner = await r.get(LOCK_KEY);
-        return { owner, self: OWNER_ID, isUs: owner === OWNER_ID };
-    } catch {
-        return { owner: null, self: OWNER_ID, isUs: false };
+        if (owner) {
+            return { owner, self: OWNER_ID, isUs: owner === OWNER_ID, state: 'held' };
+        }
+        return { owner: null, self: OWNER_ID, isUs: false, state: 'unowned' };
+    } catch (err) {
+        return {
+            owner: null,
+            self: OWNER_ID,
+            isUs: false,
+            state: 'error',
+            error: (err as Error)?.message ?? 'unknown',
+        };
     }
+}
+
+/**
+ * Periodically retry acquiring the lock. Spawn this from non-owner processes
+ * so that when the original holder dies (graceful or otherwise — `tsx watch`
+ * SIGKILLs without waiting for shutdown handlers; the 30s TTL then expires),
+ * the surviving process picks the lock up instead of leaving background
+ * services orphaned.
+ *
+ * Fires `onReclaim` exactly once when this process acquires the lock; the
+ * caller is responsible for booting owner-only services. The returned
+ * function stops the polling (e.g. on shutdown).
+ */
+export function startBootLockReclaim(onReclaim: () => void | Promise<void>): () => void {
+    // Poll at TTL_MS so a dead holder's lock can expire and be reclaimed
+    // within one interval. Faster polling burns Redis cycles for no gain.
+    const handle = setInterval(async () => {
+        try {
+            const owns = await tryAcquireBootLock();
+            if (owns) {
+                clearInterval(handle);
+                log.info('Reclaimed bootlock from a dead holder — running deferred owner-only services');
+                try {
+                    await onReclaim();
+                } catch (err) {
+                    log.error('Reclaim callback failed', err as Error);
+                }
+            }
+        } catch (err) {
+            log.warn('Bootlock reclaim attempt errored', { error: (err as Error)?.message });
+        }
+    }, TTL_MS);
+    handle.unref?.();
+    return () => clearInterval(handle);
 }
 
 /** Release the lock — call from graceful shutdown. No-op if not owner. */

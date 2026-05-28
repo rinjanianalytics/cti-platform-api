@@ -123,7 +123,7 @@ opengate.get('/keys', requireAuth, async (c) => {
  */
 opengate.delete('/keys/:id', requireAuth, async (c) => {
     const user = c.get('user');
-    const keyId = c.req.param('id');
+    const keyId = c.req.param('id')!; // route-guaranteed by :id pattern
 
     // Check key belongs to user
     const [key] = await db.select()

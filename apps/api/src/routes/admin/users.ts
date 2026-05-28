@@ -87,7 +87,7 @@ router.get('/users/roles/list', requireAuth, requireRole('admin'), async (c) => 
 
 /** GET /users/:id — Get single user */
 router.get('/users/:id', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const user = await getUserById(id);
 
     if (!user) {
@@ -127,7 +127,7 @@ router.post('/users', requireAuth, requireRole('admin'), async (c) => {
 
 /** PUT /users/:id — Update user */
 router.put('/users/:id', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const body = AdminUpdateUserSchema.parse(await c.req.json());
 
     // Prevent self-role change
@@ -155,7 +155,7 @@ router.put('/users/:id', requireAuth, requireRole('admin'), async (c) => {
 
 /** DELETE /users/:id — Soft-delete (deactivate) user. Reversible via /activate. */
 router.delete('/users/:id', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
 
     // Prevent self-deletion
     const currentUser = c.get('user');
@@ -181,7 +181,7 @@ router.delete('/users/:id', requireAuth, requireRole('admin'), async (c) => {
  * Preserves: audit_logs (no FK — audit trail outlives the user).
  */
 router.delete('/users/:id/purge', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
 
     const currentUser = c.get('user');
     if (currentUser.id === id) {
@@ -203,7 +203,7 @@ router.delete('/users/:id/purge', requireAuth, requireRole('admin'), async (c) =
 
 /** POST /users/:id/activate — Re-activate a deactivated user */
 router.post('/users/:id/activate', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const user = await activateUser(id);
     if (!user) {
         throw new NotFoundError('User', id);
@@ -213,7 +213,7 @@ router.post('/users/:id/activate', requireAuth, requireRole('admin'), async (c) 
 
 /** POST /users/:id/deactivate — Deactivate a user */
 router.post('/users/:id/deactivate', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
 
     const currentUser = c.get('user');
     if (currentUser.id === id) {
@@ -233,7 +233,7 @@ router.post('/users/:id/deactivate', requireAuth, requireRole('admin'), async (c
 
 /** POST /users/:id/regenerate-token — Regenerate a user's API token */
 router.post('/users/:id/regenerate-token', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const result = await regenerateApiToken(id);
     if (!result) {
         throw new NotFoundError('User', id);
@@ -247,7 +247,7 @@ router.post('/users/:id/regenerate-token', requireAuth, requireRole('admin'), as
 
 /** POST /users/:id/avatar — Update user avatar (self or admin) */
 router.post('/users/:id/avatar', requireAuth, async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const authUser = c.get('user');
 
     // Users can update their own avatar; admins can update anyone's
@@ -282,7 +282,7 @@ router.post('/users/:id/avatar', requireAuth, async (c) => {
 
 /** POST /users/:id/change-password — Change user password */
 router.post('/users/:id/change-password', requireAuth, async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const authUser = c.get('user');
 
     // Users can change their own password; admins can change anyone's
@@ -327,7 +327,7 @@ router.post('/users/roles', requireAuth, requireRole('admin'), async (c) => {
 
 /** PUT /users/roles/:id — Update a role */
 router.put('/users/roles/:id', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const body = AdminUpdateRoleSchema.parse(await c.req.json());
 
     const role = await updateRole(id, body);
@@ -340,7 +340,7 @@ router.put('/users/roles/:id', requireAuth, requireRole('admin'), async (c) => {
 
 /** DELETE /users/roles/:id — Delete a custom role (system roles protected) */
 router.delete('/users/roles/:id', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
 
     try {
         const ok = await deleteRole(id);
@@ -382,7 +382,7 @@ router.post('/users/permissions', requireAuth, requireRole('admin'), async (c) =
 
 /** PUT /users/permissions/:id — Update a permission module */
 router.put('/users/permissions/:id', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
     const body = AdminUpdatePermModuleSchema.parse(await c.req.json());
 
     const mod = await updatePermissionModule(id, body);
@@ -395,7 +395,7 @@ router.put('/users/permissions/:id', requireAuth, requireRole('admin'), async (c
 
 /** DELETE /users/permissions/:id — Delete a custom permission module */
 router.delete('/users/permissions/:id', requireAuth, requireRole('admin'), async (c) => {
-    const id = c.req.param('id');
+    const id = c.req.param('id')!; // route-guaranteed by :id pattern
 
     try {
         const ok = await deletePermissionModule(id);

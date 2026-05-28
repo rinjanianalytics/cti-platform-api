@@ -50,7 +50,7 @@ router.get('/yara/rules', requireAuth, (c) => {
 // ── Get rule detail ─────────────────────────────────────────────────
 
 router.get('/yara/rules/:name', requireAuth, (c) => {
-    const name = c.req.param('name');
+    const name = c.req.param('name')!; // route-guaranteed by :name pattern
     const rule = getRule(name);
     if (!rule) {
         throw new NotFoundError('YARA rule', name);
@@ -75,7 +75,7 @@ router.post('/yara/rules', requireAuth, requireRole('admin'), async (c) => {
 // ── Toggle rule ─────────────────────────────────────────────────────
 
 router.put('/yara/rules/:name/toggle', requireAuth, requireRole('admin'), async (c) => {
-    const name = c.req.param('name');
+    const name = c.req.param('name')!; // route-guaranteed by :name pattern
     const { enabled } = ToggleYaraRuleSchema.parse(await c.req.json());
 
     const success = toggleRule(name, enabled);
@@ -89,7 +89,7 @@ router.put('/yara/rules/:name/toggle', requireAuth, requireRole('admin'), async 
 // ── Delete rule ─────────────────────────────────────────────────────
 
 router.delete('/yara/rules/:name', requireAuth, requireRole('admin'), (c) => {
-    const name = c.req.param('name');
+    const name = c.req.param('name')!; // route-guaranteed by :name pattern
     const deleted = removeRule(name);
 
     if (!deleted) {

@@ -220,8 +220,14 @@ const RETURNING_COLUMNS = {
     updatedAt: iocs.updatedAt,
 } as const;
 
-/** Validate `:id` path param as a UUID, or throw 400. */
-function parseIocId(raw: string): string {
+/**
+ * Validate `:id` path param as a UUID, or throw 400.
+ *
+ * Accepts `string | undefined` because hono ≥4.12 widened `c.req.param()`
+ * to possibly-undefined. A missing id zod-fails here and surfaces as a
+ * clean 400 rather than a downstream crash.
+ */
+function parseIocId(raw: string | undefined): string {
     const parsed = IdParamSchema.shape.id.safeParse(raw);
     if (!parsed.success) throw new ValidationError('Invalid IOC id (must be UUID)');
     return parsed.data;

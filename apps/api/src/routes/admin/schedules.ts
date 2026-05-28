@@ -49,7 +49,7 @@ router.get('/schedules', requireAuth, requireRole('admin'), async (c) => {
 
 /** PATCH /admin/schedules/:key — upsert override; reconciles BullMQ on save. */
 router.patch('/schedules/:key', requireAuth, requireRole('admin'), async (c) => {
-    const key = c.req.param('key');
+    const key = c.req.param('key')!; // route-guaranteed by :key pattern
     if (!JOB_REGISTRY.some(r => r.key === key)) {
         throw new NotFoundError('ScheduledJob', key);
     }
@@ -103,7 +103,7 @@ router.patch('/schedules/:key', requireAuth, requireRole('admin'), async (c) => 
 
 /** POST /admin/schedules/:key/run-now — fire one ad-hoc run. */
 router.post('/schedules/:key/run-now', requireAuth, requireRole('admin'), async (c) => {
-    const key = c.req.param('key');
+    const key = c.req.param('key')!; // route-guaranteed by :key pattern
     if (!JOB_REGISTRY.some(r => r.key === key)) {
         throw new NotFoundError('ScheduledJob', key);
     }

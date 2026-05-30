@@ -33,11 +33,6 @@ By [RinjaniAnalytics](https://rinjanianalytics.com) — paired with the [cti-pla
 
 ![Threat Command — analyst dashboard](docs/screenshots/dashboard.png)
 
-### Admin · Services — one-pane ops health
-`/admin/services` consolidates every probe into a single round-trip: datastore connectivity (Postgres / OpenSearch / Neo4j / Redis × 2), BullMQ queue depths, worker liveness, bootlock state (`held` / `unowned` / `error`), recent feed-sync runs, LLM provider configuration, OSV + NVD enrichment-source health.
-
-![Admin Services — operator one-pane-of-glass for stack health](docs/screenshots/admin-dashboard-sparkline.png)
-
 ### Embedded Workbench — BullMQ pipeline inspection
 `/admin/workbench` is a vendored fork of [Workbench](https://github.com/pontusab/workbench) (see [packages/workbench-core/](packages/workbench-core/)). Overview, queues, jobs, **flows** (FlowProducer parent/child graphs from each feed-sync batch), and **schedulers** with our custom edit / disable / run-now actions delegating to the same `reconcileScheduledJob` control plane the native `/admin/schedules` dashboard page uses.
 

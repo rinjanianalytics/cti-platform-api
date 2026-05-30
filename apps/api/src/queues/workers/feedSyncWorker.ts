@@ -1,4 +1,6 @@
 import { Worker, Job } from 'bullmq';
+import { and, eq, gte, inArray, db } from '@rinjani/db';
+import { iocs } from '@rinjani/db/schema';
 import { connection } from '../../services/redis';
 import { getFeedHandler, getRegisteredFeeds } from '../../services/feedSync/feedRegistry';
 import type { FeedSyncJobData } from '../types';
@@ -42,6 +44,10 @@ export const feedSyncWorker = new Worker<FeedSyncJobData>(
             (job.data.options as { triggeredBy?: 'scheduler' | 'manual' } | undefined)?.triggeredBy
             ?? 'scheduler';
         const runId = await beginFeedSyncRun(source, { triggeredBy });
+        // Captured BEFORE the handler runs so the DB-fallback IOC lookup
+        // (see "Auto-enrichment" block below) only picks up rows the
+        // handler actually touched on this run.
+        const runStartTime = new Date();
 
         try {
             await job.updateProgress(10);
@@ -130,7 +136,42 @@ export const feedSyncWorker = new Worker<FeedSyncJobData>(
             // Flows view shows one parent ("batch-<runId>") with N children.
             // The parent job (in `feed-batch` queue) settles after all children
             // complete and stamps `feed_sync_runs.enriched_at` for this run.
+            //
+            // DB fallback: most feed handlers (openphish, threatfox, urlhaus,
+            // malwarebazaar, abuseSSL) route through `normalise()` in
+            // additionalFeeds.ts, which only propagates counts — `indicators`
+            // is dropped, so `newIOCs` stays empty even when 300+ rows landed
+            // in the DB. When that happens AND auto-enrich is on AND the
+            // sync claims to have ingested rows, we lift the recently-touched
+            // IOCs straight from the DB scoped to this source + updated since
+            // the run started. (We use `updatedAt` not `createdAt` so a
+            // duplicate that just got its lastSeen bumped also surfaces for
+            // re-enrichment if its priority type qualifies.)
             let enrichmentJobsQueued = 0;
+            if (
+                AUTO_ENRICH_CONFIG.enabled &&
+                newIOCs.length === 0 &&
+                source !== 'all' &&
+                ((result as { indicatorsAdded?: number })?.indicatorsAdded ?? 0) > 0
+            ) {
+                const recent = await db
+                    .select({ id: iocs.id, value: iocs.value, type: iocs.type })
+                    .from(iocs)
+                    .where(
+                        and(
+                            eq(iocs.source, source),
+                            gte(iocs.updatedAt, runStartTime),
+                            inArray(iocs.type, AUTO_ENRICH_CONFIG.priorityTypes),
+                        ),
+                    )
+                    .limit(AUTO_ENRICH_CONFIG.batchSize);
+                newIOCs.push(...recent);
+                log.info('Auto-enrichment: DB fallback found recent IOCs', {
+                    source,
+                    count: recent.length,
+                });
+            }
+
             if (AUTO_ENRICH_CONFIG.enabled && newIOCs.length > 0) {
                 const iocsToEnrich = newIOCs
                     .filter(ioc => AUTO_ENRICH_CONFIG.priorityTypes.includes(ioc.type))

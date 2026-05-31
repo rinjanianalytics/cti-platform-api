@@ -20,7 +20,8 @@ beforeAll(async () => {
 
     // Flush rate-limit counters via Redis
     try {
-        const { cacheConnection } = await import('../services/redis');
+        // One extra `..` because setup.ts moved into `integration/`
+        const { cacheConnection } = await import('../../services/redis');
         const keys = await cacheConnection.keys('rjn:rl:*');
         if (keys.length > 0) {
             await cacheConnection.del(...keys);

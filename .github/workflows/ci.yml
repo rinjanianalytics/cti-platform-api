@@ -127,8 +127,20 @@ jobs:
       - name: Build workbench-core lib
         run: pnpm --filter @rinjani/workbench-core run build:lib
 
+      # `db:apply`, NOT `db:migrate`. The latter is drizzle-kit and only
+      # applies migrations in `drizzle/meta/_journal.json` (9 entries).
+      # We have 39 hand-authored `.sql` files; `db:apply` runs the
+      # custom apply-migrations.ts that picks up every `*.sql` file in
+      # the drizzle dir in lexicographic order and tracks application
+      # in a `__sql_migrations` table.
+      #
+      # An earlier version of this workflow called `pnpm migrate` (no
+      # such script), which silently exited 0 with the warning
+      # "None of the selected packages has a 'migrate' script". The
+      # test DB then ran empty, the API crashed on boot trying to read
+      # `roles`, and every integration test failed downstream.
       - name: Run migrations
-        run: pnpm --filter @rinjani/db migrate
+        run: pnpm --filter @rinjani/db db:apply
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rinjani_v3_test
 

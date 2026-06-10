@@ -138,8 +138,10 @@ router.get('/brand/alerts', requireAuth, async (c) => {
     ]);
     return c.json({
         success: true,
-        data: items,
-        pagination: { page: f.page, pageSize: f.pageSize, total: totals[0]?.c ?? 0 },
+        data: {
+            items,
+            pagination: { page: f.page, pageSize: f.pageSize, total: totals[0]?.c ?? 0 },
+        },
     });
 });
 

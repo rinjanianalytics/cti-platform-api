@@ -529,9 +529,11 @@ export async function clearScheduledJobs(): Promise<void> {
 export async function triggerScheduledJobNow(key: string) {
     const reg = JOB_REGISTRY.find(r => r.key === key);
     if (!reg) throw new Error(`Unknown scheduled job key: ${key}`);
-    const job = await reg.queue.add(`adhoc-${reg.name}-${Date.now()}`, reg.payload, {
-        priority: 1,
-    });
+    // Use the canonical job name so the worker's switch(job.name) dispatcher
+    // routes to the correct handler. BullMQ auto-generates a unique jobId,
+    // so there's no collision with the scheduled cron entry that lives under
+    // the same name.
+    const job = await reg.queue.add(reg.name, reg.payload, { priority: 1 });
     log.info('Triggered ad-hoc run for scheduled job', { key, jobId: job.id });
     return { jobId: job.id, queue: reg.queue.name };
 }

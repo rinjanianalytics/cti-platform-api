@@ -114,7 +114,16 @@ export async function snapshotCurrentTtps(): Promise<ActorTtpSet[]> {
           AND relationship_type = 'uses'
     `);
 
-    const rows = (result as unknown as { rows?: RelationshipRow[] }).rows ?? [];
+    // postgres-js returns an array-like, pg returns { rows: [...] }. Match the
+    // normalization in rawQuery() (packages/db/src/client.ts) so the snapshot
+    // works regardless of which driver shape db.execute() returns at runtime.
+    // Pre-fix, this code only handled the pg shape — postgres-js prod returned
+    // the rows directly as an array, `result.rows` was undefined, and the
+    // differ logged "actorsInLive: 0" while the relationships table held 55k+
+    // matching tuples.
+    const rows: RelationshipRow[] = Array.isArray(result)
+        ? (result as unknown as RelationshipRow[])
+        : ((result as unknown as { rows?: RelationshipRow[] }).rows ?? []);
     const grouped = new Map<string, Set<string>>();
     for (const r of rows) {
         let set = grouped.get(r.source_id);

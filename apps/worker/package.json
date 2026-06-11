@@ -4,12 +4,9 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "_comment": "BullMQ workers + scheduler + work listener run inside the @rinjani/api process; the BullMQ scheduler is the single source of truth for feed-sync dispatch. This package only ships one-off CLI helpers (sync, sync:feeds, sync:alienvault, ...) and the legacy standalone setInterval daemon (sync:daemon / dev:standalone / start:standalone), which is no longer deployed by default — kept as an emergency manual fallback if BullMQ ever needs to be bypassed.",
+        "_comment": "Holds the feed-sync implementations (apps/worker/src/feeds/*) and a handful of one-off CLI helpers. There is NO worker process — BullMQ workers + scheduler + work listener all run inside the @rinjani/api process; the BullMQ scheduler is the single source of truth for feed-sync dispatch. The CLI helpers below are for ad-hoc manual runs from a developer shell only.",
         "build": "tsc",
-        "dev:standalone": "tsx watch src/index.ts",
-        "start:standalone": "node dist/index.js",
         "sync": "tsx src/sync.ts",
-        "sync:daemon": "tsx src/index.ts",
         "sync:feeds": "tsx src/feeds/index.ts all",
         "sync:alienvault": "tsx src/feeds/index.ts alienvault",
         "sync:cisa": "tsx src/feeds/index.ts cisa",

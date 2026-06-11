@@ -1,13 +1,12 @@
 # =============================================================================
-# V3 Unified Dockerfile — API + Worker
+# V3 Dockerfile — API container
 # =============================================================================
-# Single image for both API server and background workers.
+# Single image, one app: the API server. BullMQ scheduler + workers + the
+# feed-sync code path all run inside this process — see
+# apps/api/src/queues/scheduler.ts for the job registry.
+#
 # Uses tsx runtime (noEmit:true monorepo — no tsc build step needed).
 # Debian-slim (not Alpine) because onnxruntime requires glibc.
-#
-# Usage in docker-compose.yml:
-#   v3-api:    (default CMD runs API)
-#   v3-worker: command: ["node", "--import", "tsx/esm", "apps/worker/src/index.ts", "--daemon"]
 
 FROM node:20-slim
 

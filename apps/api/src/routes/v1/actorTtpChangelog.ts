@@ -7,17 +7,40 @@
  *
  * The differ also runs automatically every day at 04:30 UTC after the
  * MITRE sync — see scheduler entry `mitreTtpDiff`.
+ *
+ * The list endpoints LEFT JOIN against `threat_actors.real_stix_id` and
+ * `techniques.real_stix_id` to resolve human-readable names alongside the
+ * raw STIX IDs the differ stores. JOINs are LEFT so rows where the catalog
+ * hasn't caught up (e.g. a freshly-ingested relationship whose actor/
+ * technique row hasn't been upserted yet) still render with the raw IDs
+ * instead of being filtered out.
  */
 import { Hono } from 'hono';
 import { requireAuth, requireRole } from '../../middleware/auth';
 import { TtpChangeListSchema } from '../../lib/schemas';
 import { db, eq, and, desc, sql } from '@rinjani/db';
-import { actorTtpChanges } from '@rinjani/db/schema';
+import { actorTtpChanges, threatActors, techniques } from '@rinjani/db/schema';
 import { runActorTtpDiff } from '../../services/actorTtpDiffer';
 
 const router = new Hono();
 
 // ── Read ──────────────────────────────────────────────────────────
+
+// Shared SELECT shape: the raw differ row plus three resolved fields.
+// Aliases are returned as `actor_aliases` (jsonb array) — useful when an
+// analyst recognises an alias but not the canonical MITRE name.
+const SELECT_SHAPE = {
+    id: actorTtpChanges.id,
+    actorId: actorTtpChanges.actorId,
+    techniqueId: actorTtpChanges.techniqueId,
+    changeType: actorTtpChanges.changeType,
+    detectedAt: actorTtpChanges.detectedAt,
+    note: actorTtpChanges.note,
+    actorName: threatActors.name,
+    actorAliases: threatActors.aliases,
+    techniqueMitreId: techniques.mitreId,
+    techniqueName: techniques.name,
+};
 
 router.get('/ttp-changes', requireAuth, async (c) => {
     const f = TtpChangeListSchema.parse(c.req.query());
@@ -30,7 +53,9 @@ router.get('/ttp-changes', requireAuth, async (c) => {
     const offset = (f.page - 1) * f.pageSize;
 
     const [items, totals] = await Promise.all([
-        db.select().from(actorTtpChanges)
+        db.select(SELECT_SHAPE).from(actorTtpChanges)
+            .leftJoin(threatActors, eq(threatActors.realStixId, actorTtpChanges.actorId))
+            .leftJoin(techniques, eq(techniques.realStixId, actorTtpChanges.techniqueId))
             .where(where ?? sql`true`)
             .orderBy(desc(actorTtpChanges.detectedAt))
             .limit(f.pageSize).offset(offset),
@@ -55,7 +80,9 @@ router.get('/actors/:actorId/ttp-changes', requireAuth, async (c) => {
     const offset = (f.page - 1) * f.pageSize;
 
     const [items, totals] = await Promise.all([
-        db.select().from(actorTtpChanges)
+        db.select(SELECT_SHAPE).from(actorTtpChanges)
+            .leftJoin(threatActors, eq(threatActors.realStixId, actorTtpChanges.actorId))
+            .leftJoin(techniques, eq(techniques.realStixId, actorTtpChanges.techniqueId))
             .where(where ?? sql`true`)
             .orderBy(desc(actorTtpChanges.detectedAt))
             .limit(f.pageSize).offset(offset),

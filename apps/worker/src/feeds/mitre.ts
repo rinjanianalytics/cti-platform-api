@@ -174,6 +174,10 @@ export async function syncMitreAttack(): Promise<{
         try {
             await db.insert(techniques).values({
                 mitreId,
+                // obj.id is the real STIX ID, e.g. `attack-pattern--<uuid>`.
+                // Stored verbatim so the actor TTP changelog can JOIN
+                // relationships.target_id against techniques.real_stix_id.
+                realStixId: obj.id,
                 name: obj.name || 'Unknown',
                 description: obj.description,
                 detection: obj.x_mitre_detection,
@@ -188,6 +192,7 @@ export async function syncMitreAttack(): Promise<{
             }).onConflictDoUpdate({
                 target: techniques.mitreId,
                 set: {
+                    realStixId: obj.id,
                     name: obj.name || 'Unknown',
                     description: obj.description,
                     tacticIds,
@@ -220,9 +225,12 @@ export async function syncMitreAttack(): Promise<{
             const firstSeen = stixDate(obj.first_seen) ?? stixCreated;
             const lastSeen  = stixDate(obj.last_seen)  ?? stixModified;
 
-            // Use stixId field with a mitre prefix for MITRE-sourced actors
+            // Use stixId field with a mitre prefix for MITRE-sourced actors;
+            // realStixId carries obj.id (`intrusion-set--<uuid>`) so the
+            // relationships table can be joined to resolve actor names.
             await db.insert(threatActors).values({
                 stixId: `mitre--${mitreId}`,
+                realStixId: obj.id,
                 name: obj.name || 'Unknown',
                 aliases: obj.aliases || [],
                 description: obj.description,
@@ -233,6 +241,7 @@ export async function syncMitreAttack(): Promise<{
             }).onConflictDoUpdate({
                 target: threatActors.stixId,
                 set: {
+                    realStixId: obj.id,
                     name: obj.name || 'Unknown',
                     aliases: obj.aliases || [],
                     description: obj.description,
@@ -262,6 +271,7 @@ export async function syncMitreAttack(): Promise<{
         try {
             await db.insert(malware).values({
                 stixId: `mitre--${mitreId}`,
+                realStixId: obj.id,
                 name: obj.name || 'Unknown',
                 aliases: obj.x_mitre_aliases || obj.aliases || [],
                 description: obj.description,
@@ -269,6 +279,7 @@ export async function syncMitreAttack(): Promise<{
             }).onConflictDoUpdate({
                 target: malware.stixId,
                 set: {
+                    realStixId: obj.id,
                     name: obj.name || 'Unknown',
                     description: obj.description,
                     updatedAt: new Date(),

@@ -464,12 +464,15 @@ router.get('/mitre/matrix', async (c) => {
  * JSON array (double-encoded) so we parse it via `#>> '{}'` then re-cast.
  */
 router.get('/mitre/coverage', async (c) => {
-    // Two parallel queries. The per-tactic count uses a JSONB containment join,
+    // Three parallel queries. The per-tactic count uses a JSONB containment join,
     // which over-counts techniques shared between tactics (e.g. T1059 is in both
     // Execution and Defense Evasion). `totalTechniques` therefore has to come
     // from a separate `COUNT(*)` over the techniques table, not from summing
-    // the per-tactic numbers.
-    const [rows, totalRow] = await Promise.all([
+    // the per-tactic numbers. `lastSyncedAt` is MAX(updated_at) over the
+    // techniques table — the MITRE sync bumps updated_at on every upsert, so
+    // this answers the operator question "is this data fresh?" without
+    // requiring a separate sync_at column.
+    const [rows, totalRow, freshnessRow] = await Promise.all([
         db.execute(sql`
             SELECT
               t.mitre_id  AS mitre_id,
@@ -488,6 +491,7 @@ router.get('/mitre/coverage', async (c) => {
             technique_count: string | number;
         }>,
         db.execute(sql`SELECT COUNT(*)::int AS total FROM techniques`) as unknown as Array<{ total: number }>,
+        db.execute(sql`SELECT MAX(updated_at)::text AS last_synced_at FROM techniques`) as unknown as Array<{ last_synced_at: string | null }>,
     ]);
 
     const tactics = rows.map(r => ({
@@ -498,10 +502,11 @@ router.get('/mitre/coverage', async (c) => {
     }));
 
     const totalTechniques = Number(totalRow?.[0]?.total ?? 0);
+    const lastSyncedAt = freshnessRow?.[0]?.last_synced_at ?? null;
 
     return c.json({
         success: true,
-        data: { tactics, totalTechniques },
+        data: { tactics, totalTechniques, lastSyncedAt },
     });
 });
 

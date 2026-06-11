@@ -35,6 +35,11 @@ export const tactics = pgTable('tactics', {
 export const techniques = pgTable('techniques', {
     id: uuid('id').defaultRandom().primaryKey(),
     mitreId: varchar('mitre_id', { length: 20 }).notNull().unique(),  // T1059.001
+    // Real STIX ID from the upstream MITRE bundle, `attack-pattern--<uuid>`.
+    // Needed so JOINs against the `relationships` table (which stores the
+    // real STIX ID in target_id for technique edges) can resolve a
+    // mitre_id / name pair without a second round-trip.
+    realStixId: varchar('real_stix_id', { length: 255 }),
     name: varchar('name', { length: 256 }).notNull(),                   // PowerShell
     description: text('description'),
     detection: text('detection'),

@@ -14,6 +14,12 @@ import { relations } from 'drizzle-orm';
 export const threatActors = pgTable('threat_actors', {
     id: uuid('id').primaryKey().defaultRandom(),
     stixId: varchar('stix_id', { length: 255 }).notNull().unique(),
+    // Real STIX ID from the upstream MITRE bundle (e.g. `intrusion-set--<uuid>`).
+    // Distinct from the synthetic `stix_id` (`mitre--<mitreId>`) so JOINs
+    // against the `relationships` table — which carries the real IDs in
+    // source_id/target_id — work without breaking callers that depend on
+    // the synthetic primary identifier.
+    realStixId: varchar('real_stix_id', { length: 255 }),
     name: varchar('name', { length: 500 }).notNull(),
     description: text('description'),
     aliases: jsonb('aliases').$type<string[]>().default([]),
@@ -38,6 +44,7 @@ export const threatActors = pgTable('threat_actors', {
 }, (table) => ({
     nameIdx: index('threat_actors_name_idx').on(table.name),
     stixIdIdx: index('threat_actors_stix_id_idx').on(table.stixId),
+    realStixIdIdx: index('threat_actors_real_stix_id_idx').on(table.realStixId),
 }));
 
 // ============================================================================
@@ -78,6 +85,8 @@ export const indicators = pgTable('indicators', {
 export const malware = pgTable('malware', {
     id: uuid('id').primaryKey().defaultRandom(),
     stixId: varchar('stix_id', { length: 255 }).notNull().unique(),
+    // Real STIX ID from upstream (`malware--<uuid>`). See threat_actors.realStixId.
+    realStixId: varchar('real_stix_id', { length: 255 }),
     name: varchar('name', { length: 500 }).notNull(),
     description: text('description'),
     malwareTypes: jsonb('malware_types').$type<string[]>().default([]),
@@ -94,6 +103,7 @@ export const malware = pgTable('malware', {
 }, (table) => ({
     nameIdx: index('malware_name_idx').on(table.name),
     stixIdIdx: index('malware_stix_id_idx').on(table.stixId),
+    realStixIdIdx: index('malware_real_stix_id_idx').on(table.realStixId),
 }));
 
 // ============================================================================

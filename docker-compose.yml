@@ -10,8 +10,9 @@
 # container would collide on :3001 / :3000 with the host process.
 #
 # Profiles (opt-in):
-#   - apps:       v3-api + v3-worker  (run the API/worker as containers
-#                 INSTEAD of `pnpm dev`. Stop your host pnpm dev first.)
+#   - apps:       v3-api  (run the API as a container INSTEAD of
+#                 `pnpm dev`. Stop your host pnpm dev first.) Feed
+#                 sync + BullMQ workers run inside v3-api.
 #   - dashboard:  v3-dashboard (Next.js container instead of host dev)
 #   - platform:   keycloak, vault  (optional SSO + secrets — code falls
 #                 back to env vars when these aren't reachable)
@@ -27,8 +28,14 @@
 #   - Removed v3-searxng (was never wired into any feature).
 #   - Moved the 3 metric exporters out of default and under `telemetry`
 #     so they only run alongside prometheus/grafana.
-#   - Moved v3-api + v3-worker behind the `apps` profile so a stray
+#   - Moved v3-api behind the `apps` profile so a stray
 #     `docker compose up -d` no longer steals :3001 from `pnpm dev`.
+# Audit notes (2026-06-11):
+#   - Removed v3-worker. It ran apps/worker/src/index.ts --daemon,
+#     a setInterval feed-sync loop that duplicated work already done
+#     by the BullMQ scheduler in v3-api. Two copies of every feed
+#     fired at boot, masking failures across log streams and burning
+#     upstream rate limits. The BullMQ scheduler is now the only path.
 
 services:
   # ============================================================================
@@ -490,13 +497,12 @@ services:
       - URLSCAN_API_KEY=${URLSCAN_API_KEY:-}
       - GREYNOISE_API_KEY=${GREYNOISE_API_KEY:-}
       # ── Feed API Keys ──
-      # These keys also have to live in this block (not just v3-worker)
-      # because BullMQ-dispatched "Run now" feed-sync jobs are processed
-      # by the API process (apps/api/src/startup.ts spawns the worker pool
-      # in-process). Without these, manual sync triggers silently insert
-      # `feed_sync_runs` rows with `items_failed=1, error_details=NULL`
-      # while the scheduled in-process feeds in v3-worker work fine —
-      # disguising the bug from cursory inspection.
+      # All feed-sync now runs in this container: BullMQ scheduler
+      # dispatches jobs onto queues that the in-process workers consume
+      # (apps/api/src/queues/workers/*). Without these keys, manual
+      # "Run now" triggers and scheduled fires both silently insert
+      # `feed_sync_runs` rows with `items_failed=1, error_details=NULL`,
+      # which is easy to miss until upstream stops producing data.
       - ALIENVAULT_API_KEY=${ALIENVAULT_API_KEY:-}
       - NVD_API_KEY=${NVD_API_KEY:-}
       - PHISHTANK_API_KEY=${PHISHTANK_API_KEY:-}
@@ -543,74 +549,16 @@ services:
       timeout: 10s
       retries: 3
 
-  # ============================================================================
-  # Background Job Worker
-  # Profile: apps  (NOT default — pairs with v3-api; same reasoning)
-  # ============================================================================
-  v3-worker:
-    profiles: [ "apps" ]
-    container_name: v3-worker
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    command: [ "./apps/api/node_modules/.bin/tsx", "apps/worker/src/index.ts", "--daemon" ]
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@v3-pgbouncer:6432/${POSTGRES_DB:-rinjani_v3}
-      - REDIS_CACHE_URL=redis://v3-redis-cache:6379
-      - REDIS_QUEUE_URL=redis://v3-redis-queue:6379
-      - OPENSEARCH_URL=http://v3-opensearch:9200
-      - NEO4J_URI=bolt://v3-neo4j:7687
-      - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-rinjani1}
-      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-5}
-      - ENABLE_FEED_SYNC=${ENABLE_FEED_SYNC:-true}
-      - SYNC_INTERVAL=${SYNC_INTERVAL:-3600000}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://v3-tempo:4318
-      - OTEL_SERVICE_NAME=rinjani-worker
-      - NODE_PATH=/app/apps/api/node_modules
-      # ── Enrichment API Keys ──
-      - VIRUSTOTAL_API_KEY=${VIRUSTOTAL_API_KEY:-}
-      - ABUSECH_API_KEY=${ABUSECH_API_KEY:-}
-      - RISKIQ_USER=${RISKIQ_USER:-}
-      - RISKIQ_API_KEY=${RISKIQ_API_KEY:-}
-      - GOOGLE_SAFE_BROWSING_API_KEY=${GOOGLE_SAFE_BROWSING_API_KEY:-}
-      - ABUSEIPDB_API_KEY=${ABUSEIPDB_API_KEY:-}
-      - SHODAN_API_KEY=${SHODAN_API_KEY:-}
-      - IPINFO_API_KEY=${IPINFO_API_KEY:-}
-      - URLSCAN_API_KEY=${URLSCAN_API_KEY:-}
-      - GREYNOISE_API_KEY=${GREYNOISE_API_KEY:-}
-      # ── Feed Sync API Keys ──
-      - ALIENVAULT_API_KEY=${ALIENVAULT_API_KEY:-}
-      # abuse.ch issues ONE auth key for ThreatFox + URLhaus +
-      # MalwareBazaar. Worker code reads per-feed env vars, so all three
-      # point at ABUSECH_API_KEY (the canonical name documented in
-      # .env.example and used by the v3-api block above). Was previously
-      # `${ABUSECH_AUTH_KEY:-}` — wrong variable name, never populated,
-      # silent zero-IOC feed runs every cron tick on first deploy.
-      - THREATFOX_AUTH_KEY=${ABUSECH_API_KEY:-}
-      - URLHAUS_AUTH_KEY=${ABUSECH_API_KEY:-}
-      - MALWAREBAZAAR_AUTH_KEY=${ABUSECH_API_KEY:-}
-      # NVD published its public API key in 2024. PhishTank's registration
-      # is gated. Both need forwarding so the worker can hit the upstream
-      # APIs without bailing out on "key not configured".
-      - NVD_API_KEY=${NVD_API_KEY:-}
-      - PHISHTANK_API_KEY=${PHISHTANK_API_KEY:-}
-    depends_on:
-      v3-pgbouncer:
-        condition: service_healthy
-      v3-redis-cache:
-        condition: service_healthy
-      v3-redis-queue:
-        condition: service_healthy
-    healthcheck:
-      test: [ "CMD-SHELL", "test -f /proc/1/cmdline && cat /proc/1/cmdline | tr '\\0' ' ' | grep -q 'worker' || exit 1" ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+  # The v3-worker container used to live here, running
+  # `apps/worker/src/index.ts --daemon` — a second copy of the setInterval
+  # feed-sync daemon. That path ran in parallel to the BullMQ scheduler
+  # in v3-api, double-firing every upstream sync (twice the rate-limit
+  # pressure, two competing upserts per row, masked failures in two log
+  # streams). Removed once the BullMQ scheduler in v3-api became the
+  # single source of truth — see apps/api/src/queues/scheduler.ts for
+  # the full job registry; coverage is a superset of what the daemon
+  # ever did. The apps/worker/src/feeds/* modules stay — they're the
+  # actual feed implementations, imported by the BullMQ workers.
   # ============================================================================
   # Dashboard (Next.js) — v302 standalone build
   # Start with:  docker compose --profile dashboard up -d v3-dashboard

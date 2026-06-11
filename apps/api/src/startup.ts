@@ -209,31 +209,12 @@ async function bootOwnerOnlyServices(): Promise<void> {
         log.error('Worker subsystem boot failed', err as Error);
     });
 
-    // ── Feed-sync setInterval daemon ────────────────────────────────────
-    // Legacy parallel path to the BullMQ scheduled-jobs feed-sync flow.
-    // Kept for behavioural parity with the old worker-entry; consider
-    // removing once /admin/schedules ownership is the only path used.
-    // Opt out with `ENABLE_FEED_SYNC=false`.
-    if (process.env.ENABLE_FEED_SYNC !== 'false') {
-        import('../../worker/src/feeds/index').then(({ feeds, runAllFeeds }) => {
-            const names = Object.keys(feeds);
-            log.info(`Feed-sync daemon: ${names.length} feeds`, {
-                feeds: names.map(k => `${feeds[k as keyof typeof feeds].name}@${feeds[k as keyof typeof feeds].interval / 60000}min`),
-            });
-            runAllFeeds().catch(err => log.error('Initial feed sync failed', err as Error));
-            for (const [, feed] of Object.entries(feeds)) {
-                setInterval(async () => {
-                    try {
-                        await feed.sync();
-                    } catch (err) {
-                        log.error(`Feed sync failed: ${feed.name}`, err as Error);
-                    }
-                }, feed.interval);
-            }
-        }).catch(err => {
-            log.warn('Feed-sync daemon disabled (import failed)', { error: (err as Error).message });
-        });
-    }
+    // The legacy setInterval feed-sync daemon (gated by ENABLE_FEED_SYNC)
+    // used to live here, running in parallel to the BullMQ scheduler. It was
+    // removed once /admin/schedules ownership stabilised — feed dispatch now
+    // flows exclusively through BullMQ via apps/api/src/queues/scheduler.ts,
+    // which is a superset of the daemon's coverage and respects per-job
+    // override rows (the daemon ignored them, so disabled feeds kept running).
 
     setupGracefulShutdown();
 

@@ -14,6 +14,7 @@ type Actor = typeof threatActors.$inferSelect;
 const baseActor: Actor = {
     id: 'a1',
     stixId: 'threat-actor--apt28',
+    realStixId: null,
     name: 'APT28',
     description: 'A long-running Russian state actor.',
     aliases: ['Fancy Bear', 'Sofacy'],

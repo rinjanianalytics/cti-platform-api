@@ -209,13 +209,6 @@ async function bootOwnerOnlyServices(): Promise<void> {
         log.error('Worker subsystem boot failed', err as Error);
     });
 
-    // The legacy setInterval feed-sync daemon (gated by ENABLE_FEED_SYNC)
-    // used to live here, running in parallel to the BullMQ scheduler. It was
-    // removed once /admin/schedules ownership stabilised — feed dispatch now
-    // flows exclusively through BullMQ via apps/api/src/queues/scheduler.ts,
-    // which is a superset of the daemon's coverage and respects per-job
-    // override rows (the daemon ignored them, so disabled feeds kept running).
-
     setupGracefulShutdown();
 
     // Register playbook evaluator as webhook event listener

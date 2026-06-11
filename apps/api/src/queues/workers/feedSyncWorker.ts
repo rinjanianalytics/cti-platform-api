@@ -10,6 +10,7 @@ import {
     getConfig, getFeedById,
     beginFeedSyncRun, completeFeedSyncRun,
 } from '../../services/configStore';
+import { runJobWithSpan } from '../tracing';
 
 const AUTO_ENRICH_CONFIG = {
     enabled: process.env.AUTO_ENRICH_ENABLED === 'true', // opt-IN: set AUTO_ENRICH_ENABLED=true to enable
@@ -20,7 +21,7 @@ const AUTO_ENRICH_CONFIG = {
 
 export const feedSyncWorker = new Worker<FeedSyncJobData>(
     'feed-sync',
-    async (job: Job<FeedSyncJobData>) => {
+    async (job: Job<FeedSyncJobData>) => runJobWithSpan('feed-sync', job, async () => {
         const log = createLogger('FeedSync');
 
         // Check if feed sync is disabled via dashboard toggle
@@ -262,7 +263,7 @@ export const feedSyncWorker = new Worker<FeedSyncJobData>(
             } as FeedSyncJobData & { _errorMeta: { message: string; stack?: string; attemptsMade: number; failedAt: string } });
             throw error;
         }
-    },
+    }),
     {
         connection,
         concurrency: 2,

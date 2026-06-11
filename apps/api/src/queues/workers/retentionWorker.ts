@@ -15,6 +15,7 @@ import { createLogger } from '../../lib/logger';
 import { runActorTtpDiff } from '../../services/actorTtpDiffer';
 import { scanAllWatchterms } from '../../services/ahmiaSearch';
 import { runGistScan } from '../../services/gistMonitor';
+import { runJobWithSpan } from '../tracing';
 
 const log = createLogger('RetentionWorker');
 
@@ -26,7 +27,7 @@ const BATCH_SIZE = 500;
 
 export const retentionWorker = new Worker(
     'maintenance',
-    async (job) => {
+    async (job) => runJobWithSpan('maintenance', job, async () => {
         switch (job.name) {
             case 'confidence-decay':
                 return await processConfidenceDecay();
@@ -42,7 +43,7 @@ export const retentionWorker = new Worker(
                 log.warn('Unknown maintenance job type', { name: job.name });
                 return { skipped: true };
         }
-    },
+    }),
     {
         connection,
         concurrency: 1,

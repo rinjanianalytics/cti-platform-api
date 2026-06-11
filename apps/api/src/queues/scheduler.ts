@@ -22,6 +22,7 @@
 import type { Queue } from 'bullmq';
 import { feedSyncQueue, cveEnrichmentQueue, maintenanceQueue, neo4jSyncQueue, sandboxPollerQueue, brandMonitorQueue } from './index';
 import { createLogger } from '../lib/logger';
+import { injectTraceContext } from './tracing';
 import {
     getOverride,
     listOverrides,
@@ -533,7 +534,12 @@ export async function triggerScheduledJobNow(key: string) {
     // routes to the correct handler. BullMQ auto-generates a unique jobId,
     // so there's no collision with the scheduled cron entry that lives under
     // the same name.
-    const job = await reg.queue.add(reg.name, reg.payload, { priority: 1 });
+    //
+    // injectTraceContext lifts the current HTTP-handler span into the job
+    // data so the consumer in retentionWorker / brandMonitorWorker / etc.
+    // can resume the same trace; without it the worker's DB spans become
+    // orphans that don't link back to the operator's "Run now" click.
+    const job = await reg.queue.add(reg.name, injectTraceContext(reg.payload), { priority: 1 });
     log.info('Triggered ad-hoc run for scheduled job', { key, jobId: job.id });
     return { jobId: job.id, queue: reg.queue.name };
 }
@@ -542,7 +548,7 @@ export async function triggerScheduledJobNow(key: string) {
 export async function triggerImmediateSync(source: 'otx' | 'cisa' | 'nvd' | 'all' = 'all') {
     const job = await feedSyncQueue.add(
         `immediate-${source}-sync`,
-        { source, options: { limit: 100 } },
+        injectTraceContext({ source, options: { limit: 100 } }),
         { priority: 1 },
     );
     log.info('Triggered immediate sync', { source, jobId: job.id });

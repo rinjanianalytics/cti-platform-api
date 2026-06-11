@@ -15,12 +15,13 @@ import { Worker } from 'bullmq';
 import { connection } from '../../services/redis';
 import { createLogger } from '../../lib/logger';
 import { sweepAllMonitoredDomains } from '../../services/brandMonitor';
+import { runJobWithSpan } from '../tracing';
 
 const log = createLogger('BrandMonitorWorker');
 
 export const brandMonitorWorker = new Worker(
     'brand-monitor',
-    async (job) => {
+    async (job) => runJobWithSpan('brand-monitor', job, async () => {
         if (job.name !== 'brand-sweep') {
             log.warn('unknown brand-monitor job type', { name: job.name });
             return { skipped: true };
@@ -31,7 +32,7 @@ export const brandMonitorWorker = new Worker(
             totalHitsCreated: summaries.reduce((a, s) => a + s.hitsCreated, 0),
             totalHitsUpdated: summaries.reduce((a, s) => a + s.hitsUpdated, 0),
         };
-    },
+    }),
     {
         connection,
         concurrency: 1,

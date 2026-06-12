@@ -60,15 +60,19 @@ async function processConfidenceDecay() {
 
     let totalProcessed = 0;
     let totalUpdated = 0;
+    let totalNewlyDecayed = 0;
     let offset = 0;
 
     while (true) {
-        // Fetch IOCs with last_seen older than 1 day
+        // Fetch IOCs with last_seen older than 1 day. Skip rows already
+        // flagged decayed — they don't need re-stamping, and excluding
+        // them lets the WHERE clause use iocs_decayed_at_partial_idx.
         const result = await rawQuery<{ id: string; riskScore: number; lastSeen: string; type: string }>(`
             SELECT id, risk_score as "riskScore", last_seen::text as "lastSeen", type
             FROM iocs
             WHERE last_seen < NOW() - INTERVAL '1 day'
               AND risk_score > 0
+              AND decayed_at IS NULL
             ORDER BY last_seen ASC
             LIMIT ${BATCH_SIZE} OFFSET ${offset}
         `);
@@ -76,11 +80,14 @@ async function processConfidenceDecay() {
         const rows = result.rows || result || [];
         if (rows.length === 0) break;
 
-        // Calculate decay
+        // Calculate decay. `decayed` carries per-IOC `isStale` based on the
+        // per-type staleDays threshold in DECAY_RATES — that's the signal
+        // for the marker UPDATE below.
         const decayed = batchDecay(rows);
         const toUpdate = decayed.filter(d => d.decayedScore !== d.originalScore);
+        const toMarkDecayed = decayed.filter(d => d.isStale);
 
-        // Bulk update in a single query
+        // Bulk-update risk_score for IOCs whose decayed score changed.
         if (toUpdate.length > 0) {
             const cases = toUpdate
                 .map(d => `WHEN '${escSql(d.id)}' THEN ${d.decayedScore}`)
@@ -97,16 +104,38 @@ async function processConfidenceDecay() {
             `));
         }
 
+        // Stamp `decayed_at = NOW()` on IOCs that crossed their per-type
+        // staleness threshold this run. We can keep this UPDATE small —
+        // the SELECT above already excluded rows that were previously
+        // marked, so every row in toMarkDecayed is a fresh transition.
+        // Safe to run alongside the risk_score UPDATE: separate WHERE
+        // clauses, and the iocs_undecay trigger only fires on last_seen
+        // changes, which neither UPDATE touches.
+        if (toMarkDecayed.length > 0) {
+            const staleIds = toMarkDecayed
+                .map(d => `'${escSql(d.id)}'`)
+                .join(',');
+
+            await db.execute(sql.raw(`
+                UPDATE iocs
+                SET decayed_at = NOW(),
+                    updated_at = NOW()
+                WHERE id IN (${staleIds})
+                  AND decayed_at IS NULL
+            `));
+        }
+
         totalProcessed += rows.length;
         totalUpdated += toUpdate.length;
+        totalNewlyDecayed += toMarkDecayed.length;
         offset += BATCH_SIZE;
 
         // Safety: limit to 10k rows per run
         if (offset >= 10_000) break;
     }
 
-    log.info('Confidence decay complete', { totalProcessed, totalUpdated });
-    return { totalProcessed, totalUpdated };
+    log.info('Confidence decay complete', { totalProcessed, totalUpdated, totalNewlyDecayed });
+    return { totalProcessed, totalUpdated, totalNewlyDecayed };
 }
 
 // ============================================================================

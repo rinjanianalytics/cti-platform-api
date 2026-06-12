@@ -10,6 +10,7 @@ import type { NotificationPayload } from '../../services/notifications';
 import type { AIAnalysisJobData, NotificationJobData, AlertJobData } from '../index';
 import { notificationQueue } from '../index';
 import { createLogger } from '../../lib/logger';
+import { runJobWithSpan } from '../tracing';
 
 // ============================================================================
 // AI Analysis Worker
@@ -17,7 +18,7 @@ import { createLogger } from '../../lib/logger';
 
 export const aiAnalysisWorker = new Worker<AIAnalysisJobData>(
     'ai-analysis',
-    async (job: Job<AIAnalysisJobData>) => {
+    async (job: Job<AIAnalysisJobData>) => runJobWithSpan('ai-analysis', job, async () => {
         const log = createLogger('AIAnalysis');
         log.info('Processing job', { jobId: job.id, iocValue: job.data.iocValue });
 
@@ -42,7 +43,7 @@ export const aiAnalysisWorker = new Worker<AIAnalysisJobData>(
             log.error('Job failed', error as Error, { jobId: job.id });
             throw error;
         }
-    },
+    }),
     {
         connection,
         concurrency: 3,
@@ -55,7 +56,7 @@ export const aiAnalysisWorker = new Worker<AIAnalysisJobData>(
 
 export const notificationWorker = new Worker<NotificationJobData>(
     'notifications',
-    async (job: Job<NotificationJobData>) => {
+    async (job: Job<NotificationJobData>) => runJobWithSpan('notifications', job, async () => {
         const log = createLogger('Notification');
         log.info('Processing job', { jobId: job.id, channel: job.data.channel, target: job.data.target });
 
@@ -107,7 +108,7 @@ export const notificationWorker = new Worker<NotificationJobData>(
             log.error('Job failed', error as Error, { jobId: job.id });
             throw error;
         }
-    },
+    }),
     {
         connection,
         concurrency: 10, // Higher concurrency for notification delivery
@@ -131,7 +132,7 @@ export const alertStore: StoredAlert[] = [];
 
 export const alertsWorker = new Worker<AlertJobData>(
     'alerts',
-    async (job: Job<AlertJobData>) => {
+    async (job: Job<AlertJobData>) => runJobWithSpan('alerts', job, async () => {
         const log = createLogger('Alerts');
         log.info('Processing job', { jobId: job.id, title: job.data.title });
 
@@ -200,7 +201,7 @@ export const alertsWorker = new Worker<AlertJobData>(
             log.error('Job failed', error as Error, { jobId: job.id });
             throw error;
         }
-    },
+    }),
     {
         connection,
         concurrency: 20, // Fast processing for alerts

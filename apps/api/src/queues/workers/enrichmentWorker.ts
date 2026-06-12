@@ -9,10 +9,11 @@ import type { EnrichmentSource } from '@rinjani/core/enrichment';
 import type { EnrichmentJobData } from '../types';
 import { createLogger } from '../../lib/logger';
 import { getConfig } from '../../services/configStore';
+import { runJobWithSpan } from '../tracing';
 
 export const enrichmentWorker = new Worker<EnrichmentJobData>(
     'ioc-enrichment',
-    async (job: Job<EnrichmentJobData>) => {
+    async (job: Job<EnrichmentJobData>) => runJobWithSpan('ioc-enrichment', job, async () => {
         const log = createLogger('Enrichment');
 
         // Check if enrichment is disabled via dashboard toggle
@@ -108,7 +109,7 @@ export const enrichmentWorker = new Worker<EnrichmentJobData>(
             } as EnrichmentJobData & { _errorMeta: { message: string; stack?: string; attemptsMade: number; failedAt: string } });
             throw error;
         }
-    },
+    }),
     {
         connection,
         // Default rate limit matches VirusTotal's free-tier quota

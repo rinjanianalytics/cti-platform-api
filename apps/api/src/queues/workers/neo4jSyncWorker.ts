@@ -13,10 +13,11 @@ import {
 import type { Neo4jSyncResult } from '../../services/neo4j';
 import { createLogger } from '../../lib/logger';
 import { getConfig } from '../../services/configStore';
+import { runJobWithSpan } from '../tracing';
 
 export const neo4jSyncWorker = new Worker<Neo4jSyncJobData>(
     'neo4j-sync',
-    async (job: Job<Neo4jSyncJobData>) => {
+    async (job: Job<Neo4jSyncJobData>) => runJobWithSpan('neo4j-sync', job, async () => {
         const log = createLogger('Neo4j:Sync');
 
         // Check if Neo4j sync is disabled via dashboard toggle
@@ -99,7 +100,7 @@ export const neo4jSyncWorker = new Worker<Neo4jSyncJobData>(
             log.error('Job failed', error as Error, { jobId: job.id });
             throw error;
         }
-    },
+    }),
     {
         connection,
         concurrency: 1,

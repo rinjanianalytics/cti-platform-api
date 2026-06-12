@@ -18,6 +18,7 @@ import { Worker, Job } from 'bullmq';
 import { connection } from '../../services/redis';
 import { createLogger } from '../../lib/logger';
 import { markFeedSyncRunEnriched } from '../../services/configStore';
+import { runJobWithSpan } from '../tracing';
 
 interface FeedBatchJobData {
     runId: string;
@@ -27,7 +28,7 @@ interface FeedBatchJobData {
 
 export const feedBatchWorker = new Worker<FeedBatchJobData>(
     'feed-batch',
-    async (job: Job<FeedBatchJobData>) => {
+    async (job: Job<FeedBatchJobData>) => runJobWithSpan('feed-batch', job, async () => {
         const log = createLogger('FeedBatch');
         const { runId, source, ingestedCount } = job.data;
 
@@ -43,7 +44,7 @@ export const feedBatchWorker = new Worker<FeedBatchJobData>(
         await markFeedSyncRunEnriched(runId, childrenDone);
 
         return { runId, childrenDone };
-    },
+    }),
     {
         connection,
         concurrency: 4,

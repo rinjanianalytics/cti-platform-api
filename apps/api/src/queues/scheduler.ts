@@ -238,6 +238,21 @@ export const JOB_REGISTRY: ScheduledJobRegistration[] = [
         payload: { type: 'data-retention' },
     },
 
+    // Always-on hygiene — drop OpenSearch documents for IOCs the
+    // confidenceDecay job has marked decayed (iocs.decayed_at IS NOT NULL).
+    // Cron sits one hour after confidenceDecay (01:00 UTC) so the marker
+    // stamping is settled by the time the prune queries — guarantees a
+    // single decay-tick → prune-tick flow per day instead of racing them.
+    {
+        key: 'opensearchPrune',
+        jobId: 'scheduled-opensearch-prune',
+        name: 'opensearch-prune',
+        description: 'Drop OpenSearch docs for IOCs marked decayed by the decay job',
+        defaultCron: '0 2 * * *',
+        queue: maintenanceQueue,
+        payload: { type: 'opensearch-prune' },
+    },
+
     // Phase 4 #5b — sandbox poll. Every 5 minutes is a reasonable cadence
     // for ANY.RUN's typical analysis duration (1-3 min). Joe Sandbox and
     // Hybrid Analysis run longer; the per-row 1-day TTL caps how long

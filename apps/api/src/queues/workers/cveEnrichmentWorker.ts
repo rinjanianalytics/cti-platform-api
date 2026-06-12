@@ -15,6 +15,7 @@ import { and, db, eq, isNull } from '@rinjani/db';
 import { vulnerabilities } from '@rinjani/db/schema';
 import { createLogger } from '../../lib/logger';
 import { fetchFromOsv, type CveEnrichmentData } from '../../services/osvClient';
+import { runJobWithSpan } from '../tracing';
 
 export interface CVEEnrichmentJobData {
     type: 'cvss' | 'dates' | 'all';
@@ -221,7 +222,7 @@ async function enrichDates(log: ReturnType<typeof createLogger>, batchSize: numb
 
 export const cveEnrichmentWorker = new Worker<CVEEnrichmentJobData>(
     'cve-enrichment',
-    async (job: Job<CVEEnrichmentJobData>) => {
+    async (job: Job<CVEEnrichmentJobData>) => runJobWithSpan('cve-enrichment', job, async () => {
         const log = createLogger('CVE:Enrich');
         const { type = 'all', batchSize = 50 } = job.data;
         log.info('Processing job', { jobId: job.id, type, batchSize });
@@ -255,7 +256,7 @@ export const cveEnrichmentWorker = new Worker<CVEEnrichmentJobData>(
             log.error('Job failed', error as Error, { jobId: job.id });
             throw error;
         }
-    },
+    }),
     {
         connection,
         concurrency: 1, // One enrichment at a time — NVD rate limits per IP

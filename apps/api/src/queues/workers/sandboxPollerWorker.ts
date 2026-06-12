@@ -24,6 +24,7 @@ import { connection } from '../../services/redis';
 import { db, sql } from '@rinjani/db';
 import { sandboxReports } from '@rinjani/db/schema';
 import { createLogger } from '../../lib/logger';
+import { runJobWithSpan } from '../tracing';
 import { refreshSandboxReport } from '../../services/sandbox';
 
 const log = createLogger('SandboxPoller');
@@ -85,13 +86,13 @@ export async function pollPendingReports(): Promise<PollOutcome> {
 
 export const sandboxPollerWorker = new Worker(
     'sandbox-polling',
-    async (job) => {
+    async (job) => runJobWithSpan('sandbox-polling', job, async () => {
         if (job.name !== 'sandbox-poll') {
             log.warn('unknown sandbox-polling job type', { name: job.name });
             return { skipped: true };
         }
         return pollPendingReports();
-    },
+    }),
     {
         connection,
         concurrency: 1,

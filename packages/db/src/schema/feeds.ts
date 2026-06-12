@@ -38,6 +38,17 @@ export const iocs = pgTable('iocs', {
     enrichmentData: jsonb('enrichment_data'),                  // full per-source enrichment results
     enrichedAt: timestamp('enriched_at'),                      // last enrichment timestamp
 
+    // Stamped NOW() by the confidenceDecay BullMQ job when an IOC crosses
+    // its per-type staleness threshold (DECAY_RATES in
+    // apps/api/src/services/confidenceDecay.ts — IPs 30d, domains 60d,
+    // hashes 180d, etc.). A BEFORE UPDATE trigger on this table clears it
+    // back to NULL whenever last_seen advances, so any feed-sync upsert
+    // that re-sights an IOC automatically un-decays it without the call
+    // site needing to know about decayed_at. Dashboard / stats endpoints
+    // filter `WHERE decayed_at IS NULL` to hide stale entries while
+    // keeping them in the table for forensic queries.
+    decayedAt: timestamp('decayed_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
 }, (table) => ({

@@ -15,6 +15,7 @@ import { createLogger } from '../../lib/logger';
 import { runActorTtpDiff } from '../../services/actorTtpDiffer';
 import { scanAllWatchterms } from '../../services/ahmiaSearch';
 import { runGistScan } from '../../services/gistMonitor';
+import { pruneDecayedFromOpenSearch } from '../../services/opensearchPrune';
 import { runJobWithSpan } from '../tracing';
 
 const log = createLogger('RetentionWorker');
@@ -39,6 +40,8 @@ export const retentionWorker = new Worker(
                 return await scanAllWatchterms();
             case 'paste-gist-scan':
                 return await runGistScan();
+            case 'opensearch-prune':
+                return await pruneDecayedFromOpenSearch();
             default:
                 log.warn('Unknown maintenance job type', { name: job.name });
                 return { skipped: true };

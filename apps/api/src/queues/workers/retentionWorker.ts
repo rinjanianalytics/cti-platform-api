@@ -70,11 +70,19 @@ async function processConfidenceDecay() {
         // Fetch IOCs with last_seen older than 1 day. Skip rows already
         // flagged decayed — they don't need re-stamping, and excluding
         // them lets the WHERE clause use iocs_decayed_at_partial_idx.
+        //
+        // No `risk_score > 0` filter: with 266k IOCs on prod, ALL of them
+        // currently have risk_score = 0 (the scoring engine hasn't been
+        // backfilling historical rows). Gating the SELECT on the score
+        // meant zero rows ever decayed — see the 2026-06-13 retention run
+        // logged `totalProcessed: 0` even with 260k stale IOCs eligible.
+        // The score-write path keeps the originalScore > 0 guard below
+        // so unscored rows don't get materialized into low-confidence
+        // scores; the marker path runs for every stale row regardless.
         const result = await rawQuery<{ id: string; riskScore: number; lastSeen: string; type: string }>(`
             SELECT id, risk_score as "riskScore", last_seen::text as "lastSeen", type
             FROM iocs
             WHERE last_seen < NOW() - INTERVAL '1 day'
-              AND risk_score > 0
               AND decayed_at IS NULL
             ORDER BY last_seen ASC
             LIMIT ${BATCH_SIZE} OFFSET ${offset}
@@ -86,8 +94,16 @@ async function processConfidenceDecay() {
         // Calculate decay. `decayed` carries per-IOC `isStale` based on the
         // per-type staleDays threshold in DECAY_RATES — that's the signal
         // for the marker UPDATE below.
+        //
+        // `originalScore > 0` guards the score-write path: batchDecay
+        // computes max(minScore, baseScore × e^(-λ·days)), which for
+        // baseScore=0 collapses to minScore (e.g. 10 for ipv4-addr). We
+        // do NOT want to backfill the 260k unscored rows up to their
+        // type's minScore — that would invent confidence the scoring
+        // engine never asserted. Score updates apply only to already-
+        // scored IOCs; the marker path runs on every stale row.
         const decayed = batchDecay(rows);
-        const toUpdate = decayed.filter(d => d.decayedScore !== d.originalScore);
+        const toUpdate = decayed.filter(d => d.decayedScore !== d.originalScore && d.originalScore > 0);
         const toMarkDecayed = decayed.filter(d => d.isStale);
 
         // Bulk-update risk_score for IOCs whose decayed score changed.

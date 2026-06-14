@@ -31,7 +31,8 @@
             "minimatch": ">=9.0.5",
             "fast-uri": ">=3.1.2",
             "lodash": ">=4.18.0",
-            "esbuild": ">=0.25.0",
+            "esbuild": ">=0.28.1",
+            "@grpc/grpc-js": ">=1.14.4",
             "brace-expansion": ">=2.0.3",
             "rollup": ">=4.59.0",
             "vite": ">=5.4.16",
@@ -39,6 +40,6 @@
             "ws": ">=8.20.1",
             "uuid": ">=11.1.1"
         },
-        "//overrides": "Supply-chain + critical/high RCE floors (audit 2026-06-08, see SECURITY_AUDIT.md). (1) @tanstack/* floors keep the 2026-05-11 Shai-Hulud worm versions (CVE-2026-45321: react-router/router-core 1.169.5-1.169.8, history 1.161.9-1.161.12) from ever resolving. (2) protobufjs >=8.0.1 patches GHSA-xq3m-2v4x-88gg (arbitrary code execution) via OpenTelemetry → grpc. (3) minimatch >=9.0.5 patches three ReDoS advisories via drizzle-kit's glob chain. (4) fast-uri >=3.1.2 patches path-traversal + host-confusion advisories via Hono → ajv. (5) lodash >=4.18.0 patches GHSA-r5fr-rjxr-66jc (template code injection) via bull-board + dagre. (6) esbuild + vite + rollup floors patch dev-server path/RCE advisories. (7) brace-expansion + yaml + ws + uuid address DoS / memory-disclosure / bounds-check advisories in transitive deps."
+        "//overrides": "Supply-chain + critical/high RCE floors (audit 2026-06-08, refreshed 2026-06-13, see SECURITY_AUDIT.md). (1) @tanstack/* floors keep the 2026-05-11 Shai-Hulud worm versions (CVE-2026-45321: react-router/router-core 1.169.5-1.169.8, history 1.161.9-1.161.12) from ever resolving. (2) protobufjs >=8.0.1 patches GHSA-xq3m-2v4x-88gg (arbitrary code execution) via OpenTelemetry → grpc. (3) minimatch >=9.0.5 patches three ReDoS advisories via drizzle-kit's glob chain. (4) fast-uri >=3.1.2 patches path-traversal + host-confusion advisories via Hono → ajv. (5) lodash >=4.18.0 patches GHSA-r5fr-rjxr-66jc (template code injection) via bull-board + dagre. (6) esbuild >=0.28.1 patches missing-binary-integrity advisory (Deno module RCE via NPM_CONFIG_REGISTRY — we use the Node path so impact is theoretical, but the audit flags by version). (7) @grpc/grpc-js >=1.14.4 patches GHSA-5375-pq7m-f5r2 (CVE-2026-48068, malformed HTTP/2 stream server crash) and GHSA-99f4-grh7-6pcq (CVE-2026-48069, malformed compressed message client/server crash) — both transitive via OpenTelemetry's OTLP/gRPC exporters. (8) brace-expansion + yaml + ws + uuid address DoS / memory-disclosure / bounds-check advisories in transitive deps."
     }
 }

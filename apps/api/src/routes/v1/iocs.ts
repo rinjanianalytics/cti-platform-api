@@ -87,34 +87,51 @@ router.get('/iocs', async (c) => {
 router.get('/iocs/cursor', async (c) => {
     const { cursor, limit, direction } = parseCursorParams(c.req.query());
 
+    // Default behavior: hide IOCs the decay job has marked as decayed
+    // (iocs.decayed_at IS NOT NULL — see migration 0058 and PRs #105/#106).
+    // `?includeDecayed=true` opts back in — useful for analysts investigating
+    // historical activity. The opt-in is opt-IN: no truthy parsing tricks,
+    // anything other than the literal string "true" keeps the filter on.
+    const includeDecayed = c.req.query('includeDecayed') === 'true';
+
     // The cursor token is decoded from a base64 query param, so its fields are
     // attacker-controllable. Every dynamic value goes through `sql` parameter
     // binding; only the static direction-dependent SQL fragments are inlined.
     const isNext = direction === 'next';
+    // `decayClause` interpolates an `sql` fragment (not a string) so drizzle
+    // composes it into the prepared statement instead of inlining literal SQL.
+    // Empty fragment when includeDecayed=true so the planner doesn't see a
+    // tautology like "AND TRUE" that wastes cycles.
+    const decayClause = includeDecayed
+        ? sql``
+        : sql` AND decayed_at IS NULL`;
+    const decayWhere = includeDecayed
+        ? sql``
+        : sql` WHERE decayed_at IS NULL`;
     const result = await db.execute(
         cursor
             ? (isNext
                 ? sql`SELECT id, type, value, source, threat_type, confidence, severity,
                              risk_score, first_seen, last_seen, tags, created_at, updated_at
                       FROM iocs
-                      WHERE (updated_at, id::text) < (${cursor.timestamp}::timestamptz, ${cursor.id})
+                      WHERE (updated_at, id::text) < (${cursor.timestamp}::timestamptz, ${cursor.id})${decayClause}
                       ORDER BY updated_at DESC, id DESC
                       LIMIT ${limit + 1}`
                 : sql`SELECT id, type, value, source, threat_type, confidence, severity,
                              risk_score, first_seen, last_seen, tags, created_at, updated_at
                       FROM iocs
-                      WHERE (updated_at, id::text) > (${cursor.timestamp}::timestamptz, ${cursor.id})
+                      WHERE (updated_at, id::text) > (${cursor.timestamp}::timestamptz, ${cursor.id})${decayClause}
                       ORDER BY updated_at ASC, id ASC
                       LIMIT ${limit + 1}`)
             : (isNext
                 ? sql`SELECT id, type, value, source, threat_type, confidence, severity,
                              risk_score, first_seen, last_seen, tags, created_at, updated_at
-                      FROM iocs
+                      FROM iocs${decayWhere}
                       ORDER BY updated_at DESC, id DESC
                       LIMIT ${limit + 1}`
                 : sql`SELECT id, type, value, source, threat_type, confidence, severity,
                              risk_score, first_seen, last_seen, tags, created_at, updated_at
-                      FROM iocs
+                      FROM iocs${decayWhere}
                       ORDER BY updated_at ASC, id ASC
                       LIMIT ${limit + 1}`)
     );

@@ -32,16 +32,29 @@ export interface DecayConfig {
     staleDays: number;
 }
 
+// Keys must match the short-form values written into `iocs.type` — the
+// schema comment (packages/db/src/schema/feeds.ts) documents:
+//   ip, domain, url, hostname, hash-md5, hash-sha1, hash-sha256, email
+// plus the generic 'hash' / 'other' / 'cve' values feed syncs produce.
+//
+// Before 2026-06-14 this map used STIX 2.1 names (ipv4-addr, domain-name,
+// file:SHA-256, email-addr) which only happened to match for `url`.
+// Every other type silently fell through to the 'default' config —
+// e.g. an IP that should have decayed at 30d kept its weight until 60d.
+// The bug was invisible while the prod corpus was younger than the
+// default 60d threshold; bringing the keys in line now means the
+// per-type windows apply as soon as the corpus is old enough to test.
 const DECAY_RATES: Record<string, DecayConfig> = {
-    'ipv4-addr': { lambda: 0.05, minScore: 10, staleDays: 30 },
-    'ipv6-addr': { lambda: 0.05, minScore: 10, staleDays: 30 },
-    'domain-name': { lambda: 0.03, minScore: 15, staleDays: 60 },
-    'url': { lambda: 0.07, minScore: 5, staleDays: 14 },
-    'file:SHA-256': { lambda: 0.01, minScore: 20, staleDays: 180 },
-    'file:SHA-1': { lambda: 0.01, minScore: 20, staleDays: 180 },
-    'file:MD5': { lambda: 0.015, minScore: 15, staleDays: 120 },
-    'email-addr': { lambda: 0.04, minScore: 10, staleDays: 45 },
-    'default': { lambda: 0.03, minScore: 10, staleDays: 60 },
+    ip:            { lambda: 0.05,  minScore: 10, staleDays: 30 },
+    domain:        { lambda: 0.03,  minScore: 15, staleDays: 60 },
+    hostname:      { lambda: 0.03,  minScore: 15, staleDays: 60 },  // shared with domain — same volatility profile
+    url:           { lambda: 0.07,  minScore: 5,  staleDays: 14 },
+    'hash-sha256': { lambda: 0.01,  minScore: 20, staleDays: 180 },
+    'hash-sha1':   { lambda: 0.01,  minScore: 20, staleDays: 180 },
+    'hash-md5':    { lambda: 0.015, minScore: 15, staleDays: 120 },
+    hash:          { lambda: 0.015, minScore: 15, staleDays: 120 }, // generic — MD5 conservative default
+    email:         { lambda: 0.04,  minScore: 10, staleDays: 45 },
+    default:       { lambda: 0.03,  minScore: 10, staleDays: 60 },
 };
 
 // ============================================================================

@@ -213,8 +213,24 @@ export async function computeCompositeScore(iocId: string): Promise<ScoreBreakdo
 
 /**
  * Batch re-score all IOCs. Processes in batches of 100.
+ *
+ * `onlyUnscored: true` restricts the work to rows where `risk_score = 0`
+ * (or NULL). This is the backfill path for IOCs ingested before the
+ * stream-consumer scoring hook was wired up — on prod 2026-06-14 that
+ * was 266,822 of 266,822 rows, so the very first run is a long one.
+ * Subsequent runs are no-ops once the streamConsumers path covers every
+ * new ingestion.
+ *
+ * Resumability: the SELECT re-evaluates the filter each batch. With
+ * `onlyUnscored`, every UPDATE shrinks the eligible set, so a process
+ * crash mid-run picks up the remaining rows on the next invocation
+ * without skipping or duplicating. With `onlyUnscored: false` the
+ * existing OFFSET pagination is preserved.
  */
-export async function rescoreAll(batchSize = 100): Promise<BatchScoreResult> {
+export async function rescoreAll(
+    batchSize = 100,
+    opts: { onlyUnscored?: boolean } = {},
+): Promise<BatchScoreResult> {
     const result: BatchScoreResult = {
         total: 0, scored: 0, errors: 0, avgComposite: 0,
         distribution: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
@@ -224,8 +240,19 @@ export async function rescoreAll(batchSize = 100): Promise<BatchScoreResult> {
     let totalScore = 0;
 
     while (true) {
+        const whereClause = opts.onlyUnscored
+            ? 'WHERE risk_score IS NULL OR risk_score = 0'
+            : '';
+        // When filtering by `risk_score = 0`, the UPDATE inside the loop
+        // moves rows out of the eligible set — so offset stays at 0 and
+        // we re-query for the next batch. Without the filter we keep the
+        // historical OFFSET-walk behaviour so callers that wanted a full
+        // re-score over every row still get one.
+        const limitOffset = opts.onlyUnscored
+            ? `LIMIT ${batchSize}`
+            : `LIMIT ${batchSize} OFFSET ${offset}`;
         const batch = await rawQuery(
-            `SELECT id FROM iocs ORDER BY created_at DESC LIMIT ${batchSize} OFFSET ${offset}`
+            `SELECT id FROM iocs ${whereClause} ORDER BY created_at DESC ${limitOffset}`
         );
 
         const rows = batch.rows ?? [];
@@ -239,8 +266,16 @@ export async function rescoreAll(batchSize = 100): Promise<BatchScoreResult> {
                 result.scored++;
                 totalScore += score.composite;
 
+                // GREATEST(score, 1) so genuinely-zero composites still
+                // satisfy `risk_score != 0` — otherwise the onlyUnscored
+                // SELECT would re-pick the same row next iteration and
+                // we'd loop forever on IOCs with no sources / no detections
+                // / no graph signal. A floor of 1 sits comfortably inside
+                // the existing "info" bucket (< 20) so it doesn't pollute
+                // any of the meaningful score thresholds.
+                const persistedScore = Math.max(score.composite, 1);
                 await db.execute(sql.raw(
-                    `UPDATE iocs SET risk_score = ${score.composite}, updated_at = NOW()
+                    `UPDATE iocs SET risk_score = ${persistedScore}, updated_at = NOW()
                      WHERE id = '${String(row.id).replace(/'/g, "''")}'`
                 ));
 

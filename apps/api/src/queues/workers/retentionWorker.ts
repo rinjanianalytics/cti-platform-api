@@ -16,6 +16,7 @@ import { runActorTtpDiff } from '../../services/actorTtpDiffer';
 import { scanAllWatchterms } from '../../services/ahmiaSearch';
 import { runGistScan } from '../../services/gistMonitor';
 import { pruneDecayedFromOpenSearch } from '../../services/opensearchPrune';
+import { rescoreAll } from '../../services/scoringEngine';
 import { runJobWithSpan } from '../tracing';
 
 const log = createLogger('RetentionWorker');
@@ -42,6 +43,15 @@ export const retentionWorker = new Worker(
                 return await runGistScan();
             case 'opensearch-prune':
                 return await pruneDecayedFromOpenSearch();
+            case 'risk-score-backfill':
+                // Scores every IOC at risk_score = 0 / NULL using the
+                // existing scoringEngine pipeline (source confidence +
+                // VT detections + graph centrality + freshness + MITRE
+                // coverage). One-shot work in steady state — the
+                // stream-consumer scoring hook keeps newly-ingested
+                // IOCs scored — so the per-tick result.scored count
+                // drops to zero once the backfill is complete.
+                return await rescoreAll(100, { onlyUnscored: true });
             default:
                 log.warn('Unknown maintenance job type', { name: job.name });
                 return { skipped: true };

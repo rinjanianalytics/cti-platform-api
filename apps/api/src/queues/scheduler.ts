@@ -252,6 +252,24 @@ export const JOB_REGISTRY: ScheduledJobRegistration[] = [
         queue: maintenanceQueue,
         payload: { type: 'opensearch-prune' },
     },
+    // One-shot backfill that keeps the scoring engine honest on rows
+    // ingested before the stream-consumer scoring hook (or by feed-sync
+    // upserts that don't go through the stream). Schedule is weekly
+    // safety-net cadence — Sundays 02:30 UTC, between opensearchPrune
+    // (02:00) and the weekly data-retention job (03:30). The
+    // `onlyUnscored: true` filter makes steady-state runs no-ops once
+    // every row has a non-zero score, so the weekly cron is essentially
+    // a backstop. Operators run it ad-hoc via Admin -> Schedules ->
+    // riskScoreBackfill -> Run now for the first full-corpus sweep.
+    {
+        key: 'riskScoreBackfill',
+        jobId: 'scheduled-risk-score-backfill',
+        name: 'risk-score-backfill',
+        description: 'Score IOCs whose risk_score is 0 (backfill for pre-streamConsumer rows)',
+        defaultCron: '30 2 * * 0',
+        queue: maintenanceQueue,
+        payload: { type: 'risk-score-backfill' },
+    },
 
     // Phase 4 #5b — sandbox poll. Every 5 minutes is a reasonable cadence
     // for ANY.RUN's typical analysis duration (1-3 min). Joe Sandbox and

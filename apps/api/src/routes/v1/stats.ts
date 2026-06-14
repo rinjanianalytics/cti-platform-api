@@ -509,6 +509,13 @@ router.get('/stats/trending-tags', async (c) => {
             FROM iocs
             WHERE tags IS NOT NULL AND array_length(tags,1) > 0
               AND created_at > now() - (${totalMinutes}::int * interval '1 minute')
+              -- Trending is a "what's hot RIGHT NOW" surface, so decayed
+              -- IOCs (iocs.decayed_at IS NOT NULL — see PR #105's marker
+              -- layer) are excluded. The OpenSearch-backed /stats/*
+              -- endpoints get this filtering for free via the prune job
+              -- (PR #106); this query hits Postgres directly so it
+              -- needs the clause explicitly.
+              AND decayed_at IS NULL
             GROUP BY tag
         ) sub
         WHERE tag <> '' AND length(tag) > 1

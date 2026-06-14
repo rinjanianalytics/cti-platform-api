@@ -370,12 +370,14 @@ router.get('/intelligence/cve/:cveId', async (c) => {
             linkedActors = actorRows;
         }
 
-        // Also search for actors via IOC references to this CVE
+        // Also search for actors via IOC references to this CVE.
+        // Decayed IOCs are excluded — analyst is asking "who's actively
+        // exploiting this CVE", not "who has ever been seen with it".
         if (linkedActors.length === 0) {
             const iocResults = await db.select({
                 pulseId: iocs.pulseId,
             }).from(iocs)
-                .where(sql`${normalizedCve} = ANY(${iocs.tags})`)
+                .where(sql`${normalizedCve} = ANY(${iocs.tags}) AND ${iocs.decayedAt} IS NULL`)
                 .limit(20);
 
             const cveRelatedPulseIds = [...new Set(
@@ -509,7 +511,7 @@ router.get('/intelligence/actor/:id', async (c) => {
 
     log.info('Actor intelligence request', { id });
 
-    const { db, eq, sql, inArray } = await import('@rinjani/db');
+    const { db, eq, sql, inArray, and, isNull } = await import('@rinjani/db');
     const { threatActors, mitreRelationships, techniques, malware, pulses, iocs } = await import('@rinjani/db/schema');
 
     // 1. Resolve actor — by UUID or by name
@@ -633,6 +635,10 @@ router.get('/intelligence/actor/:id', async (c) => {
         // Find IOCs linked to matched pulses
         if (relatedPulses.length > 0) {
             const pulseOtxIds = relatedPulses.map(p => p.otxId);
+            // "Related IOCs for this pulse" is a current-threats surface
+            // (dashboard rendering of "what's still active in this
+            // campaign"), so decayed IOCs are excluded — see PR #105's
+            // marker layer.
             const iocRows = await db.select({
                 id: iocs.id,
                 type: iocs.type,
@@ -642,7 +648,10 @@ router.get('/intelligence/actor/:id', async (c) => {
                 confidence: iocs.confidence,
                 tags: iocs.tags,
             }).from(iocs)
-                .where(inArray(iocs.pulseId, pulseOtxIds))
+                .where(and(
+                    inArray(iocs.pulseId, pulseOtxIds),
+                    isNull(iocs.decayedAt),
+                ))
                 .limit(50);
 
             relatedIOCs = iocRows;

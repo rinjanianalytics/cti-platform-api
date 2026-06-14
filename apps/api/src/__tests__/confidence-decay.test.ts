@@ -14,15 +14,15 @@ import { calculateDecayedScore, refreshConfidence, batchDecay, getDecayConfig } 
 
 describe('calculateDecayedScore', () => {
     it('should return original score for very recent lastSeen', () => {
-        const result = calculateDecayedScore(80, new Date().toISOString(), 'ipv4-addr');
+        const result = calculateDecayedScore(80, new Date().toISOString(), 'ip');
         expect(result.score).toBeGreaterThanOrEqual(79);
         expect(result.isStale).toBe(false);
     });
 
     it('should decay IP addresses faster than file hashes', () => {
         const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
-        const ipResult = calculateDecayedScore(100, thirtyDaysAgo, 'ipv4-addr');
-        const hashResult = calculateDecayedScore(100, thirtyDaysAgo, 'file:SHA-256');
+        const ipResult = calculateDecayedScore(100, thirtyDaysAgo, 'ip');
+        const hashResult = calculateDecayedScore(100, thirtyDaysAgo, 'hash-sha256');
 
         expect(ipResult.score).toBeLessThan(hashResult.score);
     });
@@ -31,8 +31,8 @@ describe('calculateDecayedScore', () => {
         const yearAgo = new Date(Date.now() - 365 * 86400000).toISOString();
         const config = getDecayConfig();
 
-        const result = calculateDecayedScore(100, yearAgo, 'ipv4-addr');
-        expect(result.score).toBe(config['ipv4-addr'].minScore);
+        const result = calculateDecayedScore(100, yearAgo, 'ip');
+        expect(result.score).toBe(config['ip'].minScore);
     });
 
     it('should flag IOCs as stale past staleDays threshold', () => {
@@ -50,13 +50,13 @@ describe('calculateDecayedScore', () => {
     });
 
     it('should handle Date object input', () => {
-        const result = calculateDecayedScore(50, new Date(), 'domain-name');
+        const result = calculateDecayedScore(50, new Date(), 'domain');
         expect(result.score).toBeGreaterThanOrEqual(49);
     });
 
     it('should report days since last seen', () => {
         const tenDaysAgo = new Date(Date.now() - 10 * 86400000).toISOString();
-        const result = calculateDecayedScore(100, tenDaysAgo, 'ipv4-addr');
+        const result = calculateDecayedScore(100, tenDaysAgo, 'ip');
         expect(result.daysSinceLastSeen).toBeGreaterThanOrEqual(9.9);
         expect(result.daysSinceLastSeen).toBeLessThanOrEqual(10.1);
     });
@@ -100,8 +100,8 @@ describe('refreshConfidence', () => {
 describe('batchDecay', () => {
     it('should process batch of IOCs', () => {
         const iocs = [
-            { id: '1', riskScore: 80, lastSeen: new Date().toISOString(), type: 'ipv4-addr' },
-            { id: '2', riskScore: 60, lastSeen: new Date(Date.now() - 30 * 86400000).toISOString(), type: 'domain-name' },
+            { id: '1', riskScore: 80, lastSeen: new Date().toISOString(), type: 'ip' },
+            { id: '2', riskScore: 60, lastSeen: new Date(Date.now() - 30 * 86400000).toISOString(), type: 'domain' },
         ];
 
         const results = batchDecay(iocs);
@@ -118,8 +118,8 @@ describe('batchDecay', () => {
     it('should handle mixed IOC types', () => {
         const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
         const iocs = [
-            { id: 'ip1', riskScore: 100, lastSeen: thirtyDaysAgo, type: 'ipv4-addr' },
-            { id: 'hash1', riskScore: 100, lastSeen: thirtyDaysAgo, type: 'file:SHA-256' },
+            { id: 'ip1', riskScore: 100, lastSeen: thirtyDaysAgo, type: 'ip' },
+            { id: 'hash1', riskScore: 100, lastSeen: thirtyDaysAgo, type: 'hash-sha256' },
             { id: 'url1', riskScore: 100, lastSeen: thirtyDaysAgo, type: 'url' },
         ];
 

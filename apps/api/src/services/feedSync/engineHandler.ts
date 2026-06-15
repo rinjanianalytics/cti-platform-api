@@ -23,26 +23,43 @@ import { createLogger } from '../../lib/logger';
 const log = createLogger('EngineHandler');
 
 /**
- * Fetch a feed payload per the manifest's source spec. Supports the auth
- * shapes the seed manifest schema allows: none, bearer (token from env via
- * `header` field), apiKeyHeader (literal token in env, header name from
- * `header` field). Auth secrets come from env vars referenced by name —
- * never embedded in the manifest body.
+ * Resolve the auth headers to add for a manifest's auth config. Pure +
+ * env-injectable so it can be unit-tested without a live fetch.
+ *
+ * The secret is read from `env[secretEnv]`. `secretEnv` is deliberately
+ * distinct from the HTTP header name: abuse.ch wants the secret in an
+ * "Auth-Key" header, but the secret value lives in the THREATFOX_AUTH_KEY
+ * env var — the two names don't match. `secretEnv` falls back to `header`
+ * only for back-compat with manifests authored before secretEnv existed
+ * (which only works when the env var name happens to equal the header name).
+ *
+ * Secrets are NEVER embedded in the manifest body — only referenced by env
+ * var name.
+ */
+export function resolveAuthHeaders(
+    auth: FeedManifest['source']['auth'],
+    env: Record<string, string | undefined> = process.env,
+): Record<string, string> {
+    const out: Record<string, string> = {};
+    const secretEnv = auth.secretEnv ?? auth.header;
+    const token = secretEnv ? env[secretEnv] : undefined;
+    if (auth.type === 'bearer') {
+        if (token) out['Authorization'] = `Bearer ${token}`;
+    } else if (auth.type === 'apiKeyHeader' && auth.header) {
+        if (token) out[auth.header] = token;
+    }
+    return out;
+}
+
+/**
+ * Fetch a feed payload per the manifest's source spec. Auth secrets come from
+ * env vars referenced by name (see resolveAuthHeaders) — never embedded in
+ * the manifest body.
  */
 async function fetchPayload(manifest: FeedManifest): Promise<string> {
     const { url, method, headers, auth, body } = manifest.source;
 
-    const reqHeaders: Record<string, string> = { ...headers };
-    if (auth.type === 'bearer' && auth.header) {
-        const token = process.env[auth.header];
-        if (token) reqHeaders['Authorization'] = `Bearer ${token}`;
-    } else if (auth.type === 'apiKeyHeader' && auth.header) {
-        // For apiKeyHeader, the manifest `header` field carries the header NAME
-        // (e.g. "Auth-Key" for abuse.ch). The secret value comes from the env
-        // var of the same name — manifests never embed credentials.
-        const token = process.env[auth.header];
-        if (token) reqHeaders[auth.header] = token;
-    }
+    const reqHeaders: Record<string, string> = { ...headers, ...resolveAuthHeaders(auth) };
 
     const init: RequestInit = { method, headers: reqHeaders };
     if (body !== undefined && method === 'POST') {

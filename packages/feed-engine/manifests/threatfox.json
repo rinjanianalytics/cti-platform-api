@@ -8,7 +8,7 @@
     "method": "POST",
     "headers": { "Content-Type": "application/json" },
     "body": { "query": "get_iocs", "days": 7 },
-    "auth": { "type": "apiKeyHeader", "header": "Auth-Key" }
+    "auth": { "type": "apiKeyHeader", "header": "Auth-Key", "secretEnv": "THREATFOX_AUTH_KEY" }
   },
   "format": "json",
   "extract": { "recordsPath": "data" },

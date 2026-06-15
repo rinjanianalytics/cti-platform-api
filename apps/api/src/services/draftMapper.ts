@@ -193,7 +193,9 @@ MANIFEST SHAPE
     "method": "GET" | "POST",
     "headers": {},
     "body"?: <object for POST JSON body>,
-    "auth": { "type": "none" | "bearer" | "apiKeyHeader", "header"?: "<HEADER-NAME>" }
+    "auth": { "type": "none" | "bearer" | "apiKeyHeader", "header"?: "<HTTP-HEADER-NAME>", "secretEnv"?: "<ENV_VAR_NAME>" }
+    //   header    = the HTTP header to send the secret in (apiKeyHeader only, e.g. "Auth-Key")
+    //   secretEnv = the ENV VAR holding the secret value (e.g. "THREATFOX_AUTH_KEY") — NEVER the secret itself
   },
   "format": "${input.format}",
   "extract": {

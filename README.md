@@ -443,6 +443,8 @@ See `apps/worker/plugins/example-rss-feed/` for reference.
 ## 📚 Documentation
 
 - [Deployment Guide](DEPLOY.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Feed Connector Engine](docs/feed-engine.md) — declarative manifests, the `feeds_config`/`feed_manifest` split, LLM draft-mapper
 - [Roadmap](ROADMAP.md)
 - [API Documentation](http://localhost:3001/docs) (when running)
 - [GraphQL Playground](http://localhost:3001/graphql)

@@ -14,6 +14,12 @@ on:
       - 'pnpm-lock.yaml'
       - '.github/workflows/**'
       - 'tsconfig.base.json'
+      # Dockerfile / compose changes must trigger CI so the docker job runs.
+      # (Without these, a Dockerfile-only PR shows "no checks" — which is how
+      # the feed-engine COPY gap reached production on 2026-06-15.)
+      - 'Dockerfile'
+      - 'docker-compose*.yml'
+      - 'scripts/**'
   pull_request:
     branches: [master]
 
@@ -128,11 +134,12 @@ jobs:
         run: pnpm --filter @rinjani/workbench-core run build:lib
 
       # `db:apply`, NOT `db:migrate`. The latter is drizzle-kit and only
-      # applies migrations in `drizzle/meta/_journal.json` (9 entries).
-      # We have 39 hand-authored `.sql` files; `db:apply` runs the
-      # custom apply-migrations.ts that picks up every `*.sql` file in
-      # the drizzle dir in lexicographic order and tracks application
-      # in a `__sql_migrations` table.
+      # applies migrations registered in `drizzle/meta/_journal.json` (a
+      # small subset). The bulk are hand-authored numbered `.sql` files
+      # (currently 0001–0059); `db:apply` runs the custom
+      # apply-migrations.ts that picks up every `*.sql` file in the
+      # drizzle dir in lexicographic order and tracks application in a
+      # `__sql_migrations` table.
       #
       # The earlier version of this step called `pnpm migrate` — there is
       # no script by that name (only `db:migrate` and `db:apply`), so
@@ -193,6 +200,41 @@ jobs:
 
       - name: Build all packages
         run: pnpm build
+
+  # ------------------------------------------------------------------
+  # Docker image integrity.
+  #
+  # Two checks for the failure mode that crash-looped production on
+  # 2026-06-15: a new workspace package (@rinjani/feed-engine) was added
+  # as an API dependency but never COPY'd into the Dockerfile. The host
+  # pnpm workspace resolves it fine, so tsc / test / build all passed —
+  # the crash only surfaced at container runtime as ERR_MODULE_NOT_FOUND.
+  #
+  #   1. Static guard (scripts/check-dockerfile-deps.mjs): asserts every
+  #      `workspace:*` dep of api+worker has a Dockerfile COPY. ~50ms,
+  #      deterministic, catches the exact class. This is the real guard.
+  #   2. `docker build`: catches broader Dockerfile breakage (bad COPY
+  #      paths, failed build steps). Note: a successful build alone does
+  #      NOT catch the COPY-gap class — that's why the static check exists.
+  # ------------------------------------------------------------------
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Pure Node script, no install needed — runs against the checked-out
+      # package.json files + Dockerfile directly.
+      - name: Check Dockerfile wires all workspace deps
+        run: node scripts/check-dockerfile-deps.mjs
+
+      - name: Build v3-api image
+        run: docker build -t rinjani-api:ci-${{ github.sha }} .
 
   # ------------------------------------------------------------------
   # Dependency advisory check — runs `pnpm audit` against pinned floors

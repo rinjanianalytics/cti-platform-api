@@ -1,0 +1,28 @@
+{
+  "id": "cisa",
+  "name": "CISA Known Exploited Vulnerabilities (KEV)",
+  "enabled": true,
+  "entity": "vulnerability",
+  "source": {
+    "url": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+    "method": "GET",
+    "headers": {},
+    "auth": { "type": "none" }
+  },
+  "format": "json",
+  "extract": { "recordsPath": "vulnerabilities" },
+  "mapping": {
+    "cveId": {
+      "from": "cveID",
+      "transforms": [{ "op": "trim" }, { "op": "upper" }],
+      "required": true
+    },
+    "source": { "literal": "cisa" },
+    "description": { "from": "shortDescription" },
+    "vendorProject": { "from": "vendorProject" },
+    "product": { "from": "product" },
+    "isExploited": { "literal": true },
+    "exploitAddedDate": { "from": "dateAdded" },
+    "dueDate": { "from": "dueDate" }
+  }
+}

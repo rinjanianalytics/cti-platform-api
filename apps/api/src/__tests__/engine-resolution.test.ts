@@ -123,15 +123,23 @@ describe('resolveFeedHandler — A3 dispatch gating', () => {
         expect(callArgs[0].entity).toBe('ioc');
     });
 
-    it('flag ON + active non-IOC manifest → falls back to legacy (A3 IOC-only scope)', async () => {
+    it('flag ON + active vulnerability manifest → returns engine handler (A7.1 widened sink)', async () => {
         process.env.FEED_ENGINE_ENABLED = 'true';
+        const vulnManifest = {
+            ...VALID_THREATFOX_MANIFEST,
+            entity: 'vulnerability',
+            mapping: {
+                cveId: { from: 'cveID', required: true },
+                source: { literal: 'cisa-kev' },
+            },
+        };
         vi.mocked(connectorStore.listManifests).mockResolvedValue([
             {
                 id: 'row-uuid-2',
-                source: 'cveorg',
+                source: 'cisa',
                 version: 1,
                 entity: 'vulnerability',
-                manifest: { ...VALID_THREATFOX_MANIFEST, entity: 'vulnerability' },
+                manifest: vulnManifest,
                 isActive: true,
                 createdBy: 'jwt-user',
                 createdAt: new Date(),
@@ -140,9 +148,41 @@ describe('resolveFeedHandler — A3 dispatch gating', () => {
             } as unknown as Awaited<ReturnType<typeof connectorStore.listManifests>>[number],
         ]);
 
-        const handler = await resolveFeedHandler('cveorg');
+        const handler = await resolveFeedHandler('cisa');
 
-        expect(handler).toBe(getFeedHandler('cveorg'));
+        expect(handler).not.toBe(getFeedHandler('cisa'));
+        expect(vi.mocked(engineHandler.buildEngineHandler)).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(engineHandler.buildEngineHandler).mock.calls[0][0].entity).toBe('vulnerability');
+    });
+
+    it('flag ON + active manifest for an unsupported entity (e.g. malware) → falls back to legacy', async () => {
+        process.env.FEED_ENGINE_ENABLED = 'true';
+        const malwareManifest = {
+            ...VALID_THREATFOX_MANIFEST,
+            entity: 'malware',
+            mapping: {
+                name: { from: 'name', required: true },
+                source: { literal: 'test' },
+            },
+        };
+        vi.mocked(connectorStore.listManifests).mockResolvedValue([
+            {
+                id: 'row-uuid-malware',
+                source: 'mispgalaxy',
+                version: 1,
+                entity: 'malware',
+                manifest: malwareManifest,
+                isActive: true,
+                createdBy: 'jwt-user',
+                createdAt: new Date(),
+                lastValidatedAt: null,
+                lastValidationErrors: null,
+            } as unknown as Awaited<ReturnType<typeof connectorStore.listManifests>>[number],
+        ]);
+
+        const handler = await resolveFeedHandler('mispgalaxy');
+
+        expect(handler).toBe(getFeedHandler('mispgalaxy'));
         expect(vi.mocked(engineHandler.buildEngineHandler)).not.toHaveBeenCalled();
     });
 

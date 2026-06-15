@@ -1,0 +1,56 @@
+{
+  "title": "CISA Known Exploited Vulnerabilities Catalog",
+  "catalogVersion": "2026.06.15",
+  "dateReleased": "2026-06-15T12:00:00.000Z",
+  "count": 4,
+  "vulnerabilities": [
+    {
+      "cveID": "CVE-2026-12345",
+      "vendorProject": "Apache",
+      "product": "Struts",
+      "vulnerabilityName": "Apache Struts RCE via OGNL Injection",
+      "dateAdded": "2026-06-10",
+      "shortDescription": "Remote code execution in Apache Struts due to improper OGNL expression evaluation in user-supplied input.",
+      "requiredAction": "Apply the latest Apache Struts security update per vendor instructions.",
+      "dueDate": "2026-07-01",
+      "knownRansomwareCampaignUse": "Known",
+      "notes": ""
+    },
+    {
+      "cveID": "CVE-2026-22222",
+      "vendorProject": "Microsoft",
+      "product": "Windows",
+      "vulnerabilityName": "Win32k Elevation of Privilege",
+      "dateAdded": "2026-06-12",
+      "shortDescription": "A local attacker can elevate privileges via a use-after-free in win32k.sys.",
+      "requiredAction": "Apply June 2026 Microsoft security updates.",
+      "dueDate": "2026-07-03",
+      "knownRansomwareCampaignUse": "Unknown",
+      "notes": ""
+    },
+    {
+      "cveID": "cve-2026-33333",
+      "vendorProject": "Fortinet",
+      "product": "FortiGate",
+      "vulnerabilityName": "FortiGate SSL-VPN Pre-Auth RCE",
+      "dateAdded": "2026-06-14",
+      "shortDescription": "Pre-authentication remote code execution in FortiGate SSL-VPN due to improper bounds checking.",
+      "requiredAction": "Update to the patched firmware version per Fortinet PSIRT advisory.",
+      "dueDate": "2026-06-28",
+      "knownRansomwareCampaignUse": "Known",
+      "notes": ""
+    },
+    {
+      "cveID": "CVE-2026-44444",
+      "vendorProject": "Citrix",
+      "product": "ADC",
+      "vulnerabilityName": "Citrix ADC Memory Corruption",
+      "dateAdded": "2026-06-15",
+      "shortDescription": "Memory corruption in Citrix ADC allowing remote attackers to crash the management plane.",
+      "requiredAction": "Apply patch from Citrix bulletin CTX-2026-XXXX.",
+      "dueDate": "2026-07-15",
+      "knownRansomwareCampaignUse": "Unknown",
+      "notes": ""
+    }
+  ]
+}

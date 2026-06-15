@@ -50,6 +50,10 @@ export const CanonicalVulnerability = z.object({
   severity: z.enum(["none", "low", "medium", "high", "critical"]).optional(),
   cweId: z.string().optional(),
   isExploited: z.boolean().optional(),
+  // CISA KEV fields (A7.1) — stored as `date` columns in vulnerabilities,
+  // emitted by the engine as YYYY-MM-DD strings. The vulnerabilitySink coerces.
+  exploitAddedDate: z.string().optional(),
+  dueDate: z.string().optional(),
   epssScore: z.number().min(0).max(1).optional(),
   epssPercentile: z.number().min(0).max(1).optional(),
   vendorProject: z.string().optional(),

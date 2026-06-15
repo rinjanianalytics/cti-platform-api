@@ -1,0 +1,24 @@
+{
+  "id": "urlhaus",
+  "name": "abuse.ch URLhaus (CSV)",
+  "enabled": true,
+  "entity": "ioc",
+  "source": {
+    "url": "https://urlhaus.abuse.ch/downloads/csv_recent/",
+    "method": "GET",
+    "headers": {},
+    "auth": { "type": "none" }
+  },
+  "format": "csv",
+  "extract": { "csv": { "delimiter": ",", "hasHeader": true } },
+  "mapping": {
+    "value":     { "from": "url", "transforms": [{ "op": "trim" }], "required": true },
+    "type":      { "literal": "url", "required": true },
+    "source":    { "literal": "urlhaus" },
+    "severity":  { "from": "threat", "transforms": [
+                     { "op": "mapEnum", "arg": { "table": { "malware_download": "high" }, "fallback": "medium" } }
+                   ] },
+    "tags":      { "from": "tags", "transforms": [{ "op": "split", "arg": { "sep": "," } }] },
+    "firstSeen": { "from": "dateadded", "transforms": [{ "op": "toIso" }] }
+  }
+}

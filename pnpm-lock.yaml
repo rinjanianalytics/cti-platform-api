@@ -316,6 +316,22 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
+  packages/feed-engine:
+    dependencies:
+      zod:
+        specifier: ^3.22.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.30
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@20.19.30)(jsdom@29.1.1)(vite@6.4.2(@types/node@20.19.30)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))
+
   packages/workbench-core:
     dependencies:
       '@radix-ui/react-checkbox':
@@ -6955,7 +6971,7 @@ snapshots:
 
   '@types/nodemailer@7.0.9':
     dependencies:
-      '@types/node': 20.19.30
+      '@types/node': 22.19.11
 
   '@types/oracledb@6.5.2':
     dependencies:
@@ -6977,7 +6993,7 @@ snapshots:
 
   '@types/pg@8.16.0':
     dependencies:
-      '@types/node': 20.19.30
+      '@types/node': 22.19.11
       pg-protocol: 1.11.0
       pg-types: 2.2.0
 

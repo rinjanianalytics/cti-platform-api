@@ -1,0 +1,31 @@
+{
+  "id": "threatfox",
+  "name": "abuse.ch ThreatFox (JSON)",
+  "enabled": true,
+  "entity": "ioc",
+  "source": {
+    "url": "https://threatfox-api.abuse.ch/api/v1/",
+    "method": "POST",
+    "headers": { "Content-Type": "application/json" },
+    "auth": { "type": "none" }
+  },
+  "format": "json",
+  "extract": { "recordsPath": "data" },
+  "mapping": {
+    "value":      { "from": "ioc", "transforms": [{ "op": "trim" }], "required": true },
+    "type":       { "from": "ioc_type", "transforms": [
+                      { "op": "mapEnum", "arg": { "table": {
+                          "ip:port": "ip", "domain": "domain", "url": "url",
+                          "md5_hash": "hash-md5", "sha1_hash": "hash-sha1", "sha256_hash": "hash-sha256" },
+                        "fallback": "domain" } }
+                    ], "required": true },
+    "source":     { "literal": "threatfox" },
+    "confidence": { "from": "confidence_level", "transforms": [{ "op": "toNumber" }] },
+    "severity":   { "from": "confidence_level", "transforms": [
+                      { "op": "mapEnum", "arg": { "table": {
+                          "100": "critical", "75": "high", "50": "medium" }, "fallback": "low" } }
+                    ] },
+    "tags":       { "from": "tags", "transforms": [] },
+    "firstSeen":  { "from": "first_seen", "transforms": [{ "op": "toIso" }] }
+  }
+}

@@ -1,0 +1,26 @@
+{
+    "name": "@rinjani/feed-engine",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./manifest": "./src/manifest.ts",
+        "./engine": "./src/engine.ts",
+        "./transforms": "./src/transforms.ts",
+        "./extract": "./src/extract.ts"
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch",
+        "test": "vitest run --passWithNoTests"
+    },
+    "dependencies": {
+        "zod": "^3.22.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.11.0",
+        "typescript": "^5.4.0",
+        "vitest": "^4.1.0"
+    }
+}

@@ -45,6 +45,12 @@ export const STIX_RELATIONSHIP_TYPES = [
     'detects',
     'impersonates',
     'unknown',
+    // Telco vertical (B1.2) — kept in sync with the DB CHECK in
+    // 0061_telco_relationship_types.sql and RELATIONSHIP_ENTITY_TYPES.
+    'connects-to',
+    'uses-interface',
+    'enables-fraud',
+    'exploits-via',
 ] as const;
 
 export type STIXRelationshipType = typeof STIX_RELATIONSHIP_TYPES[number];

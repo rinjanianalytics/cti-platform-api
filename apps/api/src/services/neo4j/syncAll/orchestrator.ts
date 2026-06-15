@@ -6,7 +6,7 @@
 
 import { getNeo4jDriver, ensureNeo4jConstraints } from '../driver';
 import neo4j from 'neo4j-driver';
-import { syncActors, syncTactics, syncTechniques, syncMalware, syncTools } from '../syncEntities';
+import { syncActors, syncTactics, syncTechniques, syncMalware, syncTools, syncTelco } from '../syncEntities';
 import { syncRelationships } from '../syncRelationships';
 import { syncPulsesAndIOCs, syncAllIOCs, syncCVEs, syncSimilarIOCs } from '../syncIOCs';
 import { createLogger } from '../../../lib/logger';
@@ -20,6 +20,7 @@ export interface Neo4jSyncResult {
     malware: number;
     tools: number;
     relationships: number;
+    telco: number;
     pulses: number;
     iocs: number;
     cves: number;
@@ -51,6 +52,12 @@ export async function syncAllToNeo4j(
 
     const toolCount = await syncTools();
     onProgress?.(60);
+
+    // Telco nodes must exist BEFORE syncRelationships() so telco edges can
+    // MATCH their endpoints and hydrate (B1.2).
+    const telcoCounts = await syncTelco();
+    const telcoCount = telcoCounts.networkElements + telcoCounts.signalingInterfaces + telcoCounts.fraudSchemes;
+    onProgress?.(68);
 
     const relCount = await syncRelationships();
     onProgress?.(75);
@@ -97,6 +104,7 @@ export async function syncAllToNeo4j(
         malware: malwareCount,
         tools: toolCount,
         relationships: relCount,
+        telco: telcoCount,
         pulses: pulseCount,
         iocs: iocCount,
         cves: cveCount,

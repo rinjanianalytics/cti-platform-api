@@ -1,0 +1,145 @@
+/**
+ * /v1/connectors — Feed manifest persistence (A2 of declarative engine).
+ *
+ * Routes:
+ *   POST   /v1/connectors                  Create a new manifest version
+ *   GET    /v1/connectors                  List manifests (filters: source, entity, activeOnly)
+ *   GET    /v1/connectors/:id              Fetch a single manifest version
+ *   POST   /v1/connectors/:id/activate     Make this version the active one for its source
+ *   DELETE /v1/connectors/:id              Deactivate (rows are immutable; no hard delete)
+ *
+ * Audit trail lives in the table itself: every save is a new immutable row
+ * carrying `created_by` (auth subject), `created_at`, and a per-source
+ * monotonically increasing `version`. Activation transitions are visible
+ * via `is_active` flips; the partial unique index enforces single-active.
+ */
+
+import { Hono } from 'hono';
+import { z } from 'zod';
+import { requireAuth, requireRole } from '../../middleware/auth';
+import { NotFoundError, ValidationError } from '../../lib/errors';
+import { createLogger } from '../../lib/logger';
+import {
+    createManifest,
+    getById,
+    listManifests,
+    activate,
+    deactivate,
+    validateManifestBody,
+    ConnectorConflictError,
+} from '../../services/connectorStore';
+
+const log = createLogger('Connectors');
+const router = new Hono();
+
+const WRITE_ROLES = ['admin', 'analyst', 'developer'] as const;
+
+// All connector routes require authentication. Reads are open to authenticated
+// users; writes require one of WRITE_ROLES.
+router.use('*', requireAuth);
+
+const CreateBody = z.object({
+    source: z.string().min(1).max(100),
+    entity: z.string().min(1).max(50),
+    manifest: z.record(z.unknown()),
+});
+
+const ListQuery = z.object({
+    source: z.string().optional(),
+    entity: z.string().optional(),
+    activeOnly: z.union([z.literal('true'), z.literal('false')]).optional(),
+});
+
+// POST /connectors — create a new manifest version
+router.post('/connectors', requireRole(...WRITE_ROLES), async (c) => {
+    const raw = await c.req.json().catch(() => ({}));
+    const parsed = CreateBody.safeParse(raw);
+    if (!parsed.success) {
+        throw new ValidationError('Invalid request body', {
+            issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+        });
+    }
+
+    const { source, entity, manifest } = parsed.data;
+
+    const validation = validateManifestBody(manifest);
+    if (!validation.ok) {
+        throw new ValidationError('manifest body failed engine schema validation', {
+            issues: validation.errors,
+        });
+    }
+    if ((manifest as Record<string, unknown>).entity !== entity) {
+        throw new ValidationError(
+            `manifest.entity '${(manifest as Record<string, unknown>).entity}' does not match request body entity '${entity}'`,
+        );
+    }
+
+    const user = c.get('user');
+    try {
+        const row = await createManifest({
+            source,
+            entity,
+            manifest: validation.data,
+            createdBy: user.id,
+        });
+        log.info('Connector manifest created', { id: row.id, source, version: row.version, createdBy: user.id });
+        return c.json({ success: true, data: row }, 201);
+    } catch (err) {
+        if (err instanceof ConnectorConflictError) {
+            return c.json({ success: false, error: err.message }, 409);
+        }
+        throw err;
+    }
+});
+
+// GET /connectors — list manifests with optional filters
+router.get('/connectors', async (c) => {
+    const parsed = ListQuery.safeParse({
+        source: c.req.query('source'),
+        entity: c.req.query('entity'),
+        activeOnly: c.req.query('activeOnly'),
+    });
+    if (!parsed.success) {
+        throw new ValidationError('Invalid query parameters', {
+            issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+        });
+    }
+    const { source, entity, activeOnly } = parsed.data;
+
+    const rows = await listManifests({
+        source,
+        entity,
+        activeOnly: activeOnly === 'true',
+    });
+    return c.json({ success: true, data: rows, count: rows.length });
+});
+
+// GET /connectors/:id — fetch a single manifest version
+router.get('/connectors/:id', async (c) => {
+    const { id } = c.req.param();
+    const row = await getById(id);
+    if (!row) throw new NotFoundError('Connector', id);
+    return c.json({ success: true, data: row });
+});
+
+// POST /connectors/:id/activate — flip the active version for this source
+router.post('/connectors/:id/activate', requireRole(...WRITE_ROLES), async (c) => {
+    const { id } = c.req.param();
+    const row = await activate(id);
+    if (!row) throw new NotFoundError('Connector', id);
+    const user = c.get('user');
+    log.info('Connector manifest activated', { id, source: row.source, version: row.version, by: user.id });
+    return c.json({ success: true, data: row });
+});
+
+// DELETE /connectors/:id — soft delete (deactivate)
+router.delete('/connectors/:id', requireRole(...WRITE_ROLES), async (c) => {
+    const { id } = c.req.param();
+    const row = await deactivate(id);
+    if (!row) throw new NotFoundError('Connector', id);
+    const user = c.get('user');
+    log.info('Connector manifest deactivated', { id, by: user.id });
+    return c.json({ success: true, data: { id, isActive: false } });
+});
+
+export default router;

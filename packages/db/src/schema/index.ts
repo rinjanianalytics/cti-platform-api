@@ -91,3 +91,6 @@ export * from './darkWebMonitoring';
 
 // Paste-site monitoring (GitHub Gist firehose) — Phase 5 #5
 export * from './pasteMonitoring';
+
+// Feed connector manifests — A2 of declarative feed-connector engine
+export * from './connectors';

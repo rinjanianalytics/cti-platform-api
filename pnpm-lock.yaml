@@ -79,6 +79,9 @@ importers:
       '@rinjani/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@rinjani/feed-engine':
+        specifier: workspace:*
+        version: link:../../packages/feed-engine
       '@rinjani/workbench-core':
         specifier: workspace:*
         version: link:../../packages/workbench-core

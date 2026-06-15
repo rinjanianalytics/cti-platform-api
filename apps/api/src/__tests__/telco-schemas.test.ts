@@ -76,16 +76,20 @@ describe('SignalingInterfaceBody', () => {
 });
 
 describe('FraudSchemeBody', () => {
-    it('accepts a full fraud scheme with GSMA categories', () => {
+    it('accepts a full fraud scheme with GSMA categories + 3GPP threats (B1.3)', () => {
         const r = FraudSchemeBody.safeParse({
             refId: 'sim-swap:port-out',
             name: 'SIM-swap (port-out)',
             schemeType: 'sim-swap',
             monetization: 'account takeover → bank drain',
             gsmaFsCategories: ['FS.11'],
+            threeGppThreats: ['TR 33.926', 'TS 33.117 A.3'],
         });
         expect(r.success).toBe(true);
-        if (r.success) expect(r.data.gsmaFsCategories).toEqual(['FS.11']);
+        if (r.success) {
+            expect(r.data.gsmaFsCategories).toEqual(['FS.11']);
+            expect(r.data.threeGppThreats).toEqual(['TR 33.926', 'TS 33.117 A.3']);
+        }
     });
 
     it('requires refId, name, schemeType', () => {
@@ -93,9 +97,12 @@ describe('FraudSchemeBody', () => {
         expect(FraudSchemeBody.safeParse({ refId: 'a', name: 'x' }).success).toBe(false); // no schemeType
     });
 
-    it('gsmaFsCategories defaults to [] (populated/queried in B1.3)', () => {
+    it('gsmaFsCategories + threeGppThreats default to [] when omitted', () => {
         const r = FraudSchemeBody.safeParse({ refId: 'irsf:premium', name: 'IRSF', schemeType: 'irsf' });
         expect(r.success).toBe(true);
-        if (r.success) expect(r.data.gsmaFsCategories).toEqual([]);
+        if (r.success) {
+            expect(r.data.gsmaFsCategories).toEqual([]);
+            expect(r.data.threeGppThreats).toEqual([]);
+        }
     });
 });

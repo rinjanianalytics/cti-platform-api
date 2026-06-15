@@ -69,6 +69,7 @@ const FraudSchemeBody = z.object({
     schemeType: z.string().min(1).max(100),
     monetization: z.string().optional(),
     gsmaFsCategories: jsonStrArray,
+    threeGppThreats: jsonStrArray,
     killChainPhases: jsonObjArray,
     externalReferences: jsonObjArray,
     labels: jsonStrArray,
@@ -151,6 +152,10 @@ router.get('/telco/fraud-schemes', async (c) => {
     const rows = await listFraudSchemes({
         schemeType: c.req.query('schemeType'),
         q: c.req.query('q'),
+        // B1.3 — filter by GSMA category / 3GPP threat via JSONB containment.
+        // e.g. /v1/telco/fraud-schemes?gsmaCategory=FS.11
+        gsmaCategory: c.req.query('gsmaCategory'),
+        threeGpp: c.req.query('threeGpp'),
         limit: c.req.query('limit') ? Number(c.req.query('limit')) : undefined,
     });
     return c.json({ success: true, data: rows, count: rows.length });

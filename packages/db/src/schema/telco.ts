@@ -94,9 +94,12 @@ export const fraudSchemes = pgTable('fraud_schemes', {
     schemeType: varchar('scheme_type', { length: 100 }).notNull(),
     // How the money is made — free text (e.g. "premium-rate revenue share").
     monetization: text('monetization'),
-    // GSMA FS.11 / FS.19 categories — populated/queried in B1.3 (mirrors the
-    // Sigma→MITRE meta-JSONB + containment pattern). e.g. ["FS.11", "FS.19"].
+    // GSMA FS.11 / FS.19 categories (B1.3). Queried via JSONB containment
+    // (`gsma_fs_categories @> '["FS.11"]'`). e.g. ["FS.11", "FS.19"].
     gsmaFsCategories: jsonb('gsma_fs_categories').$type<string[]>().notNull().default([]),
+    // 3GPP threat refs (B1.3) — free strings (spec / threat IDs), e.g.
+    // ["TR 33.926", "TS 33.117 A.3"]. 3GPP has no FS.11-style enum.
+    threeGppThreats: jsonb('three_gpp_threats').$type<string[]>().notNull().default([]),
     killChainPhases: jsonb('kill_chain_phases').$type<Record<string, unknown>[]>().notNull().default([]),
     externalReferences: jsonb('external_references').$type<Record<string, unknown>[]>().notNull().default([]),
     labels: jsonb('labels').$type<string[]>().notNull().default([]),

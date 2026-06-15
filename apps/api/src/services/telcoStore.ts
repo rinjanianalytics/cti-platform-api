@@ -11,7 +11,7 @@
  * relational CRUD.
  */
 
-import { db, eq, desc, ilike, and } from '@rinjani/db';
+import { db, eq, desc, ilike, and, sql } from '@rinjani/db';
 import { networkElements, signalingInterfaces, fraudSchemes } from '@rinjani/db/schema';
 import type {
     NetworkElement, NewNetworkElement,
@@ -122,11 +122,21 @@ export async function upsertFraudScheme(data: NewFraudScheme): Promise<FraudSche
 export async function listFraudSchemes(filters: {
     schemeType?: string;
     q?: string;
+    // B1.3 — JSONB containment filters. `gsma_fs_categories @> '["FS.11"]'`
+    // and `three_gpp_threats @> '["TR 33.926"]'`. GIN-indexed (migration 0062).
+    gsmaCategory?: string;
+    threeGpp?: string;
     limit?: number;
 } = {}): Promise<FraudScheme[]> {
     const conds = [];
     if (filters.schemeType) conds.push(eq(fraudSchemes.schemeType, filters.schemeType));
     if (filters.q) conds.push(ilike(fraudSchemes.name, `%${filters.q}%`));
+    if (filters.gsmaCategory) {
+        conds.push(sql`${fraudSchemes.gsmaFsCategories} @> ${JSON.stringify([filters.gsmaCategory])}::jsonb`);
+    }
+    if (filters.threeGpp) {
+        conds.push(sql`${fraudSchemes.threeGppThreats} @> ${JSON.stringify([filters.threeGpp])}::jsonb`);
+    }
     return db
         .select()
         .from(fraudSchemes)

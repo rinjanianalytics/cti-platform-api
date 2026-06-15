@@ -129,3 +129,35 @@ describe('NlCypherSchema', () => {
         expect(() => NlCypherSchema.parse({ question: 'x', provider: 'gpt-4' })).toThrow();
     });
 });
+
+describe('NL→Cypher knows the telco subgraph (B1.5)', () => {
+    const prompt = __testing.SYSTEM_PROMPT;
+
+    it('includes the three telco node labels so the LLM can target them', () => {
+        expect(prompt).toContain('NetworkElement');
+        expect(prompt).toContain('SignalingInterface');
+        expect(prompt).toContain('FraudScheme');
+    });
+
+    it('includes the four telco edge types (SCREAMING_SNAKE_CASE matches cypherEdgeLabel)', () => {
+        for (const edge of ['CONNECTS_TO', 'USES_INTERFACE', 'ENABLES_FRAUD', 'EXPLOITS_VIA']) {
+            expect(prompt).toContain(edge);
+        }
+    });
+
+    it('documents telco node properties the operator would query on', () => {
+        expect(prompt).toContain('elementType');         // network element type
+        expect(prompt).toContain('gsmaFsCategories');    // fraud scheme GSMA mapping
+        expect(prompt).toContain('protocol');            // signaling interface
+    });
+
+    it('read-only guard still rejects writes against a telco label (regression)', () => {
+        const r = isReadOnlyCypher(`MATCH (f:FraudScheme) MERGE (f)-[:USES_INTERFACE]->(s:SignalingInterface) RETURN f`);
+        expect(r.ok).toBe(false);
+    });
+
+    it('accepts a read-only telco hunt query', () => {
+        const q = `MATCH (f:FraudScheme {schemeType:'sim-swap'})-[:EXPLOITS_VIA]->(s:SignalingInterface) RETURN f.name, s.protocol LIMIT 25`;
+        expect(isReadOnlyCypher(q).ok).toBe(true);
+    });
+});

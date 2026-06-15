@@ -42,6 +42,10 @@ const NEO4J_SCHEMA_DOC = `Node labels:
   - Campaign   — properties: {stixId, name, description, firstSeen, lastSeen, objective}
   - Mitigation — properties: {stixId, name, description}    // STIX course-of-action
   - Infrastructure — properties: {stixId, name, description, infrastructureTypes}
+  // Telco vertical (B1) — keyed on refId (e.g. "ericsson:hss:core", "diameter:s6a")
+  - NetworkElement     — properties: {refId, name, elementType, architectureSegment, vendor, description}  // HSS/UDM/AMF/MME/OCS/PCRF
+  - SignalingInterface — properties: {refId, name, protocol, referencePoint, specRef}                       // SS7/Diameter/GTP
+  - FraudScheme        — properties: {refId, name, schemeType, monetization, gsmaFsCategories, threeGppThreats}  // sim-swap/IRSF/wangiri
 
 Edge types (rel-types in SCREAMING_SNAKE_CASE):
   - USES                  Actor → Malware|Tool|Technique
@@ -54,6 +58,11 @@ Edge types (rel-types in SCREAMING_SNAKE_CASE):
   - BEACONS_TO            Malware → Infrastructure
   - CONTROLS              Actor → Infrastructure
   - DERIVED_FROM          IOC → IOC
+  // Telco vertical (B1) edges
+  - CONNECTS_TO           NetworkElement → NetworkElement (over a signaling interface)
+  - USES_INTERFACE        FraudScheme → SignalingInterface
+  - ENABLES_FRAUD         NetworkElement → FraudScheme    // misconfig/exposure enables the scheme
+  - EXPLOITS_VIA          FraudScheme → SignalingInterface
   - RELATED_TO            generic catch-all
 
 Edge properties: {description, confidence (0-100), syncedAt}

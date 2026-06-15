@@ -59,6 +59,40 @@ const REGISTRY: Record<TransformStep["op"], TransformFn> = {
 
   // arg: ignored — turns "" into undefined so `default`/`required` behave
   coalesce: (v) => (v === "" || v === null ? undefined : v),
+
+  // arg: { ranges: Array<{min?: number, max?: number, value: string}>, fallback?: string }
+  // First matching range wins (inclusive bounds). Use for numeric→enum mappings
+  // like "confidence >= 75 → high, >= 50 → medium, else low" that mapEnum can't
+  // express because it only does exact-key matches.
+  bucketize: (v, arg) => {
+    if (v === null || v === undefined || v === "") return undefined;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return undefined;
+    const { ranges, fallback } = (arg ?? {}) as {
+      ranges?: Array<{ min?: number; max?: number; value: string }>;
+      fallback?: string;
+    };
+    if (!Array.isArray(ranges)) return fallback;
+    for (const r of ranges) {
+      const minOk = r.min === undefined || n >= r.min;
+      const maxOk = r.max === undefined || n <= r.max;
+      if (minOk && maxOk) return r.value;
+    }
+    return fallback;
+  },
+
+  // arg: string | string[] — items to prepend to the current value (treated as
+  // an array; scalars are wrapped). Use for tag prefixes like `['threatfox', ...]`
+  // that mapEnum + literal can't compose because they target one output field.
+  prepend: (v, arg) => {
+    const list = Array.isArray(v) ? v
+      : (v === undefined || v === null || v === "") ? []
+      : [v];
+    const pre = Array.isArray(arg) ? arg
+      : (arg === undefined || arg === null) ? []
+      : [arg];
+    return [...pre, ...list];
+  },
 };
 
 export function applyTransforms(value: unknown, steps: TransformStep[]): unknown {

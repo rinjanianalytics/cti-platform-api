@@ -187,6 +187,10 @@ export const TransformStep = z.object({
   op: z.enum([
     "trim", "lower", "upper", "toNumber", "toIso",
     "default", "mapEnum", "regexExtract", "split", "stripPrefix", "coalesce",
+    // A4 additions — needed to reach parity with the legacy ThreatFox handler:
+    //   bucketize: numeric range → enum value (legacy "confidence >= 75 → high")
+    //   prepend:   prepend literals to an array (legacy `['threatfox', ...tags]`)
+    "bucketize", "prepend",
   ]),
   // op-specific args (kept loose on purpose; validated per-op in transforms.ts)
   arg: z.unknown().optional(),
@@ -221,6 +225,10 @@ export const FeedManifest = z.object({
     url: z.string().url(),
     method: z.enum(["GET", "POST"]).default("GET"),
     headers: z.record(z.string()).default({}),
+    // Optional request body for POST (raw string sent verbatim, or an object
+    // serialised to JSON with Content-Type auto-set if not already supplied).
+    // Needed for APIs like ThreatFox that take a JSON query payload.
+    body: z.union([z.string(), z.record(z.unknown())]).optional(),
     auth: z
       .object({ type: z.enum(["none", "bearer", "apiKeyHeader"]).default("none"), header: z.string().optional() })
       .default({ type: "none" }),

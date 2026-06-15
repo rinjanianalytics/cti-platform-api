@@ -28,21 +28,33 @@ const log = createLogger('EngineHandler');
  * never embedded in the manifest body.
  */
 async function fetchPayload(manifest: FeedManifest): Promise<string> {
-    const { url, method, headers, auth } = manifest.source;
+    const { url, method, headers, auth, body } = manifest.source;
 
     const reqHeaders: Record<string, string> = { ...headers };
     if (auth.type === 'bearer' && auth.header) {
         const token = process.env[auth.header];
         if (token) reqHeaders['Authorization'] = `Bearer ${token}`;
     } else if (auth.type === 'apiKeyHeader' && auth.header) {
+        // For apiKeyHeader, the manifest `header` field carries the header NAME
+        // (e.g. "Auth-Key" for abuse.ch). The secret value comes from the env
+        // var of the same name — manifests never embed credentials.
         const token = process.env[auth.header];
         if (token) reqHeaders[auth.header] = token;
     }
 
-    const response = await fetch(url, {
-        method,
-        headers: reqHeaders,
-    });
+    const init: RequestInit = { method, headers: reqHeaders };
+    if (body !== undefined && method === 'POST') {
+        if (typeof body === 'string') {
+            init.body = body;
+        } else {
+            init.body = JSON.stringify(body);
+            if (!reqHeaders['Content-Type'] && !reqHeaders['content-type']) {
+                reqHeaders['Content-Type'] = 'application/json';
+            }
+        }
+    }
+
+    const response = await fetch(url, init);
     if (!response.ok) {
         throw new Error(`Engine feed fetch failed: ${response.status} ${response.statusText} (${url})`);
     }

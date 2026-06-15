@@ -3,6 +3,13 @@
  *
  * Maps feed source keys → sync handler functions.
  * Adding a new feed is a one-liner here — no worker changes needed.
+ *
+ * Engine-backed dispatch (A3): the worker calls resolveFeedHandler() instead
+ * of getFeedHandler() directly. resolveFeedHandler consults FEED_ENGINE_ENABLED
+ * + the feed_manifest table; only if both gates pass for a source does it
+ * return the engine-backed handler. Every other call path falls through to
+ * the legacy registry below — no shipped feed changes behavior unless the
+ * operator opts a source in by activating a manifest AND flipping the flag.
  */
 
 import type { SyncResult } from './types';
@@ -16,6 +23,10 @@ import {
     syncEPSSFeed,
 } from './additionalFeeds';
 import { syncHibpBreaches } from './hibpSync';
+import { FeedManifest as FeedManifestSchema } from '@rinjani/feed-engine';
+import { createLogger } from '../../lib/logger';
+
+const log = createLogger('FeedRegistry');
 
 export type FeedSyncOptions = { limit?: number; since?: string };
 export type FeedHandler = (opts?: FeedSyncOptions) => Promise<SyncResult>;
@@ -62,4 +73,68 @@ export function getRegisteredFeeds(): string[] {
 /** Check if a feed source is registered. */
 export function isFeedRegistered(source: string): boolean {
     return source in FEED_REGISTRY;
+}
+
+/**
+ * Async dispatch with engine fallback (A3 entry point).
+ *
+ * Resolution order:
+ *   1. If FEED_ENGINE_ENABLED is not 'true' → legacy handler (env kill switch).
+ *   2. If no active manifest for `source` → legacy handler.
+ *   3. If active manifest's entity is not 'ioc' → legacy + warn (A3 is IOC-only;
+ *      A4+ widen).
+ *   4. If manifest body fails the engine schema → legacy + warn (the manifest
+ *      was authored before a schema tightening, or directly mutated in DB).
+ *   5. Otherwise → engine-backed handler.
+ *
+ * The legacy fallback is deliberate: A3 must never break a shipped feed.
+ * Operators opt in per-source by activating a manifest, then flip the env
+ * flag globally when ready.
+ */
+export async function resolveFeedHandler(source: string): Promise<FeedHandler | undefined> {
+    const legacy = getFeedHandler(source);
+
+    if (process.env.FEED_ENGINE_ENABLED !== 'true') {
+        return legacy;
+    }
+
+    // Lazy import keeps the worker boot path from pulling DB drivers when
+    // the flag is off (matches the auditMiddleware lazy-import pattern).
+    let activeManifest: { id: string; entity: string; manifest: Record<string, unknown> } | undefined;
+    try {
+        const { listManifests } = await import('../connectorStore');
+        const rows = await listManifests({ source, activeOnly: true });
+        if (rows[0]) {
+            activeManifest = { id: rows[0].id, entity: rows[0].entity, manifest: rows[0].manifest };
+        }
+    } catch (err) {
+        log.warn('Engine dispatch lookup failed, falling back to legacy', {
+            source, error: (err as Error).message,
+        });
+        return legacy;
+    }
+
+    if (!activeManifest) return legacy;
+
+    if (activeManifest.entity !== 'ioc') {
+        log.warn('Engine handler unavailable for non-IOC entity (A3 IOC-only); falling back to legacy', {
+            source, entity: activeManifest.entity,
+        });
+        return legacy;
+    }
+
+    const parsed = FeedManifestSchema.safeParse(activeManifest.manifest);
+    if (!parsed.success) {
+        log.warn('Active manifest failed engine schema; falling back to legacy', {
+            source,
+            issues: parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.')}: ${i.message}`),
+        });
+        return legacy;
+    }
+
+    log.info('Engine dispatch: using engine-backed handler', { source, manifestId: activeManifest.id });
+
+    // Lazy import to keep engineHandler off the legacy boot path entirely.
+    const { buildEngineHandler } = await import('./engineHandler');
+    return buildEngineHandler(parsed.data, activeManifest.id);
 }

@@ -59,6 +59,7 @@ export function toFraudSchemeNode(r: FraudScheme) {
         schemeType: r.schemeType,
         monetization: (r.monetization ?? '').slice(0, 500),
         gsmaFsCategories: r.gsmaFsCategories ?? [],
+        threeGppThreats: r.threeGppThreats ?? [],
         description: (r.description ?? '').slice(0, 500),
     };
 }
@@ -120,7 +121,8 @@ export async function syncFraudSchemes(onProgress?: (pct: number) => void): Prom
             MERGE (n:FraudScheme {refId: row.refId})
             SET n.id = row.id, n.pgId = row.pgId, n.name = row.name,
                 n.schemeType = row.schemeType, n.monetization = row.monetization,
-                n.gsmaFsCategories = row.gsmaFsCategories, n.description = row.description,
+                n.gsmaFsCategories = row.gsmaFsCategories, n.threeGppThreats = row.threeGppThreats,
+                n.description = row.description,
                 n.syncedAt = datetime()
         `, { batch });
         onProgress?.(100);

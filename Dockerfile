@@ -28,6 +28,11 @@ COPY --chown=nodejs:nodejs apps/api/package.json ./apps/api/
 COPY --chown=nodejs:nodejs apps/worker/package.json ./apps/worker/
 COPY --chown=nodejs:nodejs packages/db/package.json ./packages/db/
 COPY --chown=nodejs:nodejs packages/core/package.json ./packages/core/
+# Declarative feed-engine package (Track A). API depends on it for the
+# engine sink + draft-mapper + preview/test endpoints; without this COPY
+# `pnpm install` can't resolve `@rinjani/feed-engine: workspace:*` and the
+# API crash-loops at import time from connectorStore.ts / engineHandler.ts.
+COPY --chown=nodejs:nodejs packages/feed-engine/package.json ./packages/feed-engine/
 # workbench-core's manifest joins the install layer so its devDeps
 # (tsup + vite + tailwind) are present when we build it below.
 COPY --chown=nodejs:nodejs packages/workbench-core/package.json ./packages/workbench-core/
@@ -50,6 +55,14 @@ COPY --chown=nodejs:nodejs packages/db/tsconfig.json ./packages/db/
 COPY --chown=nodejs:nodejs packages/db/drizzle ./packages/db/drizzle
 COPY --chown=nodejs:nodejs packages/core/src ./packages/core/src
 COPY --chown=nodejs:nodejs packages/core/tsconfig.json ./packages/core/
+# Declarative feed-engine sources (Track A). Pure package — no build step,
+# imported directly via the `./src/index.ts` exports condition. Manifests
+# (packages/feed-engine/manifests/*.json) are committed to the repo and
+# consumed by the parity tests + operators POSTing to /v1/connectors at
+# runtime; the API itself reads manifest bodies from feed_manifest rows,
+# not from disk, so we don't ship the manifest dir in the image.
+COPY --chown=nodejs:nodejs packages/feed-engine/src ./packages/feed-engine/src
+COPY --chown=nodejs:nodejs packages/feed-engine/tsconfig.json ./packages/feed-engine/
 
 # workbench-core: API imports `@rinjani/workbench-core` from
 # apps/api/src/routes/admin/workbench.ts. The package's main is

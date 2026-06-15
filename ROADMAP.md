@@ -576,14 +576,35 @@ before — otherwise it's over-engineering for a phantom requirement.
 Quality-of-life items that pay back every phase above. Worked on in the
 margins, not gated behind a milestone.
 
-- ⚪ **OpenTelemetry** through the BullMQ pipeline → expose trace IDs in
-  the embedded Workbench. Workbench already shows the pipeline; this
-  shows it *with timings and per-step errors*
+- 🟢 **OpenTelemetry** through the BullMQ pipeline → expose trace IDs
+  in the embedded Workbench
+  (shipped 2026-06-11 → 2026-06-12 in PRs #96–#106. W3C `traceparent` is
+  propagated across every queue boundary — feed-sync, ioc-enrichment,
+  retention/maintenance, neo4j-sync, ai-analysis, notifications,
+  stix-import-export, taxii-push, ticketing, etc. — via the producer-side
+  `injectTraceContext()` helper and the worker-side `runJobWithSpan()`
+  wrapper in `apps/api/src/queues/tracing.ts`. The v3-worker container
+  was retired as part of this work; BullMQ scheduler is now the sole
+  dispatcher. ~17 remaining `queue.add` producer sites are documented as
+  follow-on hardening but don't break trace continuity — when a producer
+  hasn't been migrated, the worker spans simply start fresh roots.)
 - ⚪ **OpenSearch ILM** — hot/warm/cold policies; indices currently
   grow unbounded
-- ⚪ **IOC decay** — `decayed_at` based on
-  `(source_confidence × age_factor)` so old OTX pulses don't keep
-  pinging the dashboard forever
+- 🟢 **IOC decay** — `decayed_at` based on per-type staleness windows
+  + read-path filtering across the dashboard surfaces
+  (shipped 2026-06-12 → 2026-06-14 in PRs #105–#112. Migration 0058 adds
+  `iocs.decayed_at timestamptz` + a BEFORE UPDATE trigger that clears
+  it back to NULL when `last_seen` advances (so feed re-sightings
+  un-decay transparently). Daily `confidenceDecay` BullMQ job stamps
+  NOW() onto IOCs past their per-type staleness threshold (IPs 30 d,
+  domains 60 d, hashes 180 d, etc. — `DECAY_RATES` in
+  `apps/api/src/services/confidenceDecay.ts`). OpenSearch prune deletes
+  decayed-IOC documents daily. Read-path filter on `/v1/iocs/cursor`,
+  `/v1/stats/trending-tags`, `/v1/intelligence` actor-by-CVE +
+  pulse-related-IOCs; default-hide-decayed with `?includeDecayed=true`
+  override. Risk-score backfill (~268 k IOCs) ran 2026-06-14 → 2026-06-15
+  on prod; first non-zero `totalUpdated` from the score-multiplied decay
+  limb arrives the night after backfill completion.)
 - ⚪ **TAXII contract tests** — cross-test against real PyTAXII2 and
   libtaxii clients; our endpoint should pass MISP & OpenCTI clients'
   real requests
@@ -591,6 +612,28 @@ margins, not gated behind a milestone.
   p95 as data grows; CI canary
 - ⚪ **Feed-parser fuzzing** — every parser is an attack surface; AFL++
   on OTX, MISP, STIX parsers in CI
+- 🟡 **Declarative feed connector engine** — replace hand-written
+  TypeScript feed parsers with a pure, deterministic engine that runs
+  declarative *manifests* (data, not code), authored in a UI or proposed
+  by the LLM
+  (in progress, A1–A4 of 7 shipped 2026-06-15 in PRs #113, #116, #117,
+  #118. `@rinjani/feed-engine` is pure — no DB, no Redis, no network —
+  and validates per-record output against per-entity zod schemas grounded
+  in the canonical drizzle tables. Storage layer at `feed_manifest`
+  (migration 0059, immutable rows + per-source single-active partial
+  unique index); `/v1/connectors` CRUD with `created_by` audit trail.
+  `feedSyncWorker` dispatch goes through `resolveFeedHandler()` which
+  consults `FEED_ENGINE_ENABLED` + the manifest table — falls back to
+  the legacy registry on any of: flag off, no active manifest, non-IOC
+  entity, manifest fails engine zod, DB lookup throws. First migration
+  target is ThreatFox — parity test asserts engine output matches the
+  legacy handler on every detection-critical field; two improvements
+  over legacy (per-hash type granularity, unknown-ioc-type rejection)
+  are intentional and asserted in dedicated tests. Remaining: LLM
+  draft-mapper at `/v1/connectors/suggest` reusing the existing provider
+  abstraction with mandatory dry-run (A5), connector builder UI in
+  `/admin/feeds` (A6), incremental per-feed migration each gated by its
+  own parity test (A7).)
 
 ---
 

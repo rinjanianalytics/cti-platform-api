@@ -54,11 +54,14 @@ const ListQuery = z.object({
 
 const PreviewBody = z.object({
     sample: z.string().min(1).max(256 * 1024),
-    format: z.enum(['json', 'csv']),
+    format: z.enum(['json', 'csv', 'text']),
     recordsPath: z.string().optional(),
     csv: z.object({
         delimiter: z.string().default(','),
         hasHeader: z.boolean().default(true),
+    }).optional(),
+    text: z.object({
+        commentPrefix: z.string().default(''),
     }).optional(),
     limit: z.number().int().min(1).max(100).default(10),
 });
@@ -71,7 +74,7 @@ const TestBody = z.object({
 
 const SuggestBody = z.object({
     sample: z.string().min(1).max(256 * 1024), // 256 KB cap protects the LLM context
-    format: z.enum(['json', 'csv']),
+    format: z.enum(['json', 'csv', 'text']),
     entity: z.enum([
         'ioc', 'vulnerability', 'threat_actor', 'malware', 'campaign',
         'course_of_action', 'infrastructure', 'technique', 'tool',

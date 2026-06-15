@@ -16,8 +16,11 @@ export { getNeo4jDriver, closeNeo4j, checkNeo4jHealth, ensureNeo4jConstraints, g
 // MITRE entity sync
 export { syncActors, syncTactics, syncTechniques, syncMalware, syncTools } from './neo4j/syncEntities';
 
+// Telco entity sync (B1.2) — NetworkElement / SignalingInterface / FraudScheme nodes
+export { syncTelco, syncNetworkElements, syncSignalingInterfaces, syncFraudSchemes } from './neo4j/syncEntities';
+
 // MITRE relationship sync
-export { syncRelationships } from './neo4j/syncRelationships';
+export { syncRelationships, labelForEntityType } from './neo4j/syncRelationships';
 
 // IOC sync (pulses, CVEs, all IOCs, similarity)
 export { syncPulsesAndIOCs, syncCVEs, syncAllIOCs, syncSimilarIOCs } from './neo4j/syncIOCs';

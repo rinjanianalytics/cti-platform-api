@@ -199,7 +199,30 @@ const NEO4J_LABEL_BY_ENTITY: Record<string, string> = {
     'course-of-action': 'Mitigation',
     mitigation: 'Mitigation',
     infrastructure: 'Infrastructure',
+    // Telco vertical (B1.2). Both hyphen (route) + underscore (table) forms.
+    // Nodes are created by telcoSync (services/neo4j/syncEntities/telcoSync.ts);
+    // edges hydrate here once both endpoint nodes exist.
+    'network-element': 'NetworkElement',
+    'network_element': 'NetworkElement',
+    'signaling-interface': 'SignalingInterface',
+    'signaling_interface': 'SignalingInterface',
+    'fraud-scheme': 'FraudScheme',
+    'fraud_scheme': 'FraudScheme',
+    // NOTE: 'fight-technique' is intentionally NOT here. The fraud_scheme →
+    // fight_technique link is recorded relationally (relationships table), but
+    // FiGHT isn't synced to Neo4j yet, so its graph edge is deferred — the
+    // hydrate skips it cleanly until a FiGHT node-sync exists.
 };
+
+/**
+ * Resolve a relationship entity-type (hyphen or underscore form) to its Neo4j
+ * node label, or null if the type isn't graph-participating. Exported so the
+ * label map can be unit-tested directly — a missing telco entry is the silent
+ * "edge never hydrates" trap, so this is worth a boundary test.
+ */
+export function labelForEntityType(entityType: string): string | null {
+    return NEO4J_LABEL_BY_ENTITY[entityType.toLowerCase()] ?? null;
+}
 
 /**
  * Map our `relationship_type` string to the Cypher edge label we want.

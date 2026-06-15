@@ -1731,10 +1731,14 @@ export const UpdateReportScheduleSchema = z.object({
 
 // Source vocab kept narrow on purpose — these are the entity types the UI
 // can render today. Adding 'campaign', 'course-of-action', 'infrastructure'
-// (Phase 2 #1 entity tables) will widen this.
+// (Phase 2 #1 entity tables) widened this; B1.2 adds the telco entity types
+// (+ fight-technique for the relational bridge to MITRE FiGHT — the graph
+// edge to FiGHT is deferred until FiGHT nodes are synced to Neo4j).
 const RELATIONSHIP_ENTITY_TYPES = [
     'ioc', 'vulnerability', 'threat-actor', 'campaign', 'malware', 'tool',
     'course-of-action', 'infrastructure',
+    // Telco vertical (B1.2)
+    'network-element', 'signaling-interface', 'fraud-scheme', 'fight-technique',
 ] as const;
 
 /** POST /v1/relationships — Create explicit relationship */

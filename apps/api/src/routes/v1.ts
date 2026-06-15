@@ -65,6 +65,7 @@ import dataBreachRoutes from './v1/dataBreaches';
 import darkWebRoutes from './v1/darkWebMonitoring';
 import pasteMonitorRoutes from './v1/pasteMonitoring';
 import connectorRoutes from './v1/connectors';
+import telcoRoutes from './v1/telco';
 
 const v1 = new Hono();
 
@@ -182,5 +183,6 @@ v1.route('/', dataBreachRoutes);             // /data-breaches/* — Phase 5 #3 
 v1.route('/', darkWebRoutes);                // /dark-web/* — Phase 5 #4 Ahmia indexed search
 v1.route('/', pasteMonitorRoutes);           // /paste/* — Phase 5 #5 paste-site monitoring (GitHub Gist firehose)
 v1.route('/', connectorRoutes);              // /connectors/* — A2 of declarative feed-connector engine
+v1.route('/', telcoRoutes);                  // /telco/* — B1.1 telco entity model (network elements, signaling, fraud schemes)
 
 export default v1;

@@ -94,3 +94,6 @@ export * from './pasteMonitoring';
 
 // Feed connector manifests — A2 of declarative feed-connector engine
 export * from './connectors';
+
+// Telco threat-domain entities — B1.1 (network elements, signaling interfaces, fraud schemes)
+export * from './telco';

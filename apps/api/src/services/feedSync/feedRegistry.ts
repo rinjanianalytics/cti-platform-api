@@ -116,9 +116,14 @@ export async function resolveFeedHandler(source: string): Promise<FeedHandler | 
 
     if (!activeManifest) return legacy;
 
-    if (activeManifest.entity !== 'ioc') {
-        log.warn('Engine handler unavailable for non-IOC entity (A3 IOC-only); falling back to legacy', {
+    // Supported entities widen with each A7.N migration. Sinks live in
+    // services/feedSync/engineHandler.ts — adding a new entity is a sink
+    // function there + adding the value here.
+    const SUPPORTED_ENGINE_ENTITIES = new Set(['ioc', 'vulnerability']);
+    if (!SUPPORTED_ENGINE_ENTITIES.has(activeManifest.entity)) {
+        log.warn('Engine handler unavailable for this entity; falling back to legacy', {
             source, entity: activeManifest.entity,
+            supported: Array.from(SUPPORTED_ENGINE_ENTITIES),
         });
         return legacy;
     }

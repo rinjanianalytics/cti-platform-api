@@ -536,6 +536,15 @@ services:
       # ── Vault (Docker-internal URL) ──
       - VAULT_ADDR=http://v3-vault:8200
       - VAULT_ROOT_TOKEN=${VAULT_ROOT_TOKEN:-rinjani-dev-token}
+      # ── Declarative feed-connector engine (A3+) ──
+      # Global kill-switch for engine-backed feed dispatch. When 'true',
+      # resolveFeedHandler() consults the feed_manifest table; when 'false'
+      # (or unset), every feed routes through the legacy registry handler.
+      # Per-source opt-in is implicit via active manifests — setting this
+      # flag alone changes nothing unless a manifest is also activated.
+      # Default 'false' so unrelated deployments stay on legacy until the
+      # operator explicitly opts in.
+      - FEED_ENGINE_ENABLED=${FEED_ENGINE_ENABLED:-false}
     depends_on:
       v3-pgbouncer:
         condition: service_healthy

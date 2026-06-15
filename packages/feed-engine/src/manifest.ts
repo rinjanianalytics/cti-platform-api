@@ -237,10 +237,14 @@ export const FeedManifest = z.object({
       .object({ type: z.enum(["none", "bearer", "apiKeyHeader"]).default("none"), header: z.string().optional() })
       .default({ type: "none" }),
   }),
-  format: z.enum(["json", "csv"]),
+  format: z.enum(["json", "csv", "text"]),
   extract: z.object({
     recordsPath: z.string().optional(),                  // json: dot-path to the array of records
     csv: z.object({ delimiter: z.string().default(","), hasHeader: z.boolean().default(true) }).optional(),
+    // text: newline-delimited, each non-blank/non-comment line → { line: "<content>" }.
+    // commentPrefix defaults to "" (no comment skipping) so plain URL lists work
+    // out of the box; OpenPhish-style feeds with "# header" lines pass "#".
+    text: z.object({ commentPrefix: z.string().default("") }).optional(),
   }),
   // canonicalField -> how to build it
   mapping: z.record(FieldMapping),

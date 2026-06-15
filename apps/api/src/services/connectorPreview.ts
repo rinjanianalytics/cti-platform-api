@@ -20,9 +20,10 @@ import type { FeedManifest } from '@rinjani/feed-engine';
 
 export interface PreviewInput {
     sample: string;
-    format: 'json' | 'csv';
+    format: 'json' | 'csv' | 'text';
     recordsPath?: string;
     csv?: { delimiter: string; hasHeader: boolean };
+    text?: { commentPrefix: string };
     limit: number;
 }
 
@@ -50,7 +51,7 @@ export function previewExtract(input: PreviewInput): PreviewResult {
                 auth: { type: 'none' },
             },
             format: input.format,
-            extract: { recordsPath: input.recordsPath, csv: input.csv },
+            extract: { recordsPath: input.recordsPath, csv: input.csv, text: input.text },
             mapping: {},
         });
     } catch (err) {

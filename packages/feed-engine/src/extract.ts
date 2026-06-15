@@ -44,6 +44,21 @@ export function extractRecords(manifest: FeedManifest, payload: string): Record<
     return arr as Record<string, unknown>[];
   }
 
+  if (manifest.format === "text") {
+    // Plain-text line-per-record: each non-blank, non-comment line becomes
+    // { line: "<content>" }. Used by feeds like OpenPhish's feed.txt that
+    // ship a flat list of values with no structure beyond newlines.
+    //
+    // Comment prefix configurable so feeds using `#`, `//`, or `;` all work
+    // through the same path. Empty default means "no comment lines".
+    const cfg = manifest.extract.text ?? { commentPrefix: "" };
+    const lines = payload.split("\n");
+    return lines
+      .map((l) => l.replace(/\r$/, "").trim())
+      .filter((l) => l.length > 0 && (!cfg.commentPrefix || !l.startsWith(cfg.commentPrefix)))
+      .map((l) => ({ line: l }));
+  }
+
   // csv
   const cfg = manifest.extract.csv ?? { delimiter: ",", hasHeader: true };
   const rows = parseCsv(payload, cfg.delimiter);

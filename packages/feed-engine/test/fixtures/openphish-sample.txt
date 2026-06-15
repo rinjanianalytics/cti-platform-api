@@ -1,0 +1,11 @@
+# OpenPhish public feed
+# Updated hourly
+# https://openphish.com/feed.txt
+
+http://phish-example-1.com/login.php?account=verify
+http://malicious-domain.example.org/wp-admin/login
+https://fake-bank.example.net/secure/login.html
+
+https://account-verify.example.io/auth?next=/dashboard
+http://stealer.example.net/credentials/submit
+

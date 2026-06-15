@@ -31,7 +31,7 @@ const log = createLogger('DraftMapper');
 
 export interface DraftInput {
     sample: string;
-    format: 'json' | 'csv';
+    format: 'json' | 'csv' | 'text';
     entity: EntityKind;
     sourceName: string;
     provider?: LLMProvider;
@@ -76,6 +76,8 @@ const SAMPLE_MAX_BYTES = 8 * 1024;
 export function buildSkeleton(input: DraftInput): FeedManifest {
     const extract = input.format === 'csv'
         ? { csv: { delimiter: ',', hasHeader: true } }
+        : input.format === 'text'
+        ? { text: { commentPrefix: '#' } }
         : { recordsPath: input.recordsPathHint ?? 'data' };
 
     return {
@@ -194,7 +196,11 @@ MANIFEST SHAPE
     "auth": { "type": "none" | "bearer" | "apiKeyHeader", "header"?: "<HEADER-NAME>" }
   },
   "format": "${input.format}",
-  "extract": { "recordsPath"?: "<dot.path>", "csv"?: { "delimiter": ",", "hasHeader": true } },
+  "extract": {
+    "recordsPath"?: "<dot.path>",                 // json
+    "csv"?: { "delimiter": ",", "hasHeader": true },
+    "text"?: { "commentPrefix": "#" }              // text: each non-blank/non-comment line → { line: "..." }
+  },
   "mapping": { "<canonicalField>": <FieldMapping>, ... }
 }
 

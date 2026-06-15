@@ -1,0 +1,23 @@
+{
+  "id": "openphish",
+  "name": "OpenPhish public phishing-URL feed",
+  "enabled": true,
+  "entity": "ioc",
+  "source": {
+    "url": "https://openphish.com/feed.txt",
+    "method": "GET",
+    "headers": {},
+    "auth": { "type": "none" }
+  },
+  "format": "text",
+  "extract": { "text": { "commentPrefix": "#" } },
+  "mapping": {
+    "value": { "from": "line", "transforms": [{ "op": "trim" }], "required": true },
+    "type": { "literal": "url", "required": true },
+    "source": { "literal": "openphish" },
+    "threatType": { "literal": "phishing" },
+    "confidence": { "literal": 90 },
+    "severity": { "literal": "high" },
+    "tags": { "literal": ["openphish", "phishing"] }
+  }
+}

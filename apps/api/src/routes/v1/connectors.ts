@@ -29,6 +29,7 @@ import {
     ConnectorConflictError,
 } from '../../services/connectorStore';
 import { draftMapper } from '../../services/draftMapper';
+import { previewExtract, testManifest } from '../../services/connectorPreview';
 
 const log = createLogger('Connectors');
 const router = new Hono();
@@ -49,6 +50,23 @@ const ListQuery = z.object({
     source: z.string().optional(),
     entity: z.string().optional(),
     activeOnly: z.union([z.literal('true'), z.literal('false')]).optional(),
+});
+
+const PreviewBody = z.object({
+    sample: z.string().min(1).max(256 * 1024),
+    format: z.enum(['json', 'csv']),
+    recordsPath: z.string().optional(),
+    csv: z.object({
+        delimiter: z.string().default(','),
+        hasHeader: z.boolean().default(true),
+    }).optional(),
+    limit: z.number().int().min(1).max(100).default(10),
+});
+
+const TestBody = z.object({
+    sample: z.string().min(1).max(256 * 1024),
+    manifest: z.record(z.unknown()),
+    limit: z.number().int().min(1).max(100).default(10),
 });
 
 const SuggestBody = z.object({
@@ -168,6 +186,36 @@ router.post('/connectors/suggest', requireRole(...WRITE_ROLES), async (c) => {
         dryRun: result.dryRun,
     });
     return c.json({ success: true, data: result });
+});
+
+// POST /connectors/preview — extract raw records from a sample (A6 backend)
+// Used by the connector builder UI for field discovery: paste a sample, see
+// what shape the engine extracts, then map fields against the result. No
+// manifest needed — only extract config (recordsPath / csv options).
+router.post('/connectors/preview', requireRole(...WRITE_ROLES), async (c) => {
+    const raw = await c.req.json().catch(() => ({}));
+    const parsed = PreviewBody.safeParse(raw);
+    if (!parsed.success) {
+        throw new ValidationError('Invalid request body', {
+            issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+        });
+    }
+    return c.json({ success: true, data: previewExtract(parsed.data) });
+});
+
+// POST /connectors/test — dry-run a full manifest against a sample (A6 backend)
+// The UI calls this after the operator has assembled (manually or via /suggest)
+// a manifest, to see exactly what records the engine extracts. Returns the
+// dry-run stats + the first N canonical records.
+router.post('/connectors/test', requireRole(...WRITE_ROLES), async (c) => {
+    const raw = await c.req.json().catch(() => ({}));
+    const parsed = TestBody.safeParse(raw);
+    if (!parsed.success) {
+        throw new ValidationError('Invalid request body', {
+            issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+        });
+    }
+    return c.json({ success: true, data: testManifest(parsed.data) });
 });
 
 // DELETE /connectors/:id — soft delete (deactivate)

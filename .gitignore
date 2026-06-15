@@ -50,3 +50,7 @@ yarn-error.log*
 
 # turbo cache + per-task logs — every run modifies these, never source-of-truth
 .turbo/
+
+#Dont tell public about our plan
+PLAN.md
+ASSESSMENT.md

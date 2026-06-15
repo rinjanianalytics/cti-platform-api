@@ -28,6 +28,7 @@ import {
     validateManifestBody,
     ConnectorConflictError,
 } from '../../services/connectorStore';
+import { draftMapper } from '../../services/draftMapper';
 
 const log = createLogger('Connectors');
 const router = new Hono();
@@ -48,6 +49,18 @@ const ListQuery = z.object({
     source: z.string().optional(),
     entity: z.string().optional(),
     activeOnly: z.union([z.literal('true'), z.literal('false')]).optional(),
+});
+
+const SuggestBody = z.object({
+    sample: z.string().min(1).max(256 * 1024), // 256 KB cap protects the LLM context
+    format: z.enum(['json', 'csv']),
+    entity: z.enum([
+        'ioc', 'vulnerability', 'threat_actor', 'malware', 'campaign',
+        'course_of_action', 'infrastructure', 'technique', 'tool',
+    ]),
+    sourceName: z.string().min(1).max(100),
+    provider: z.enum(['gemini', 'openrouter', 'ollama']).optional(),
+    recordsPathHint: z.string().optional(),
 });
 
 // POST /connectors — create a new manifest version
@@ -130,6 +143,31 @@ router.post('/connectors/:id/activate', requireRole(...WRITE_ROLES), async (c) =
     const user = c.get('user');
     log.info('Connector manifest activated', { id, source: row.source, version: row.version, by: user.id });
     return c.json({ success: true, data: row });
+});
+
+// POST /connectors/suggest — LLM draft-mapper (A5)
+// Takes a sample payload + entity + sourceName, returns either a runnable
+// manifest (`status: 'ok'`) or an explicit `status: 'couldnt_map'` with a
+// reason. Never returns a stub manifest pretending to be real — falls back
+// to an empty skeleton (mapping: {}, enabled: false) when the LLM is
+// unreachable or its output fails validation/dry-run.
+router.post('/connectors/suggest', requireRole(...WRITE_ROLES), async (c) => {
+    const raw = await c.req.json().catch(() => ({}));
+    const parsed = SuggestBody.safeParse(raw);
+    if (!parsed.success) {
+        throw new ValidationError('Invalid request body', {
+            issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+        });
+    }
+
+    const result = await draftMapper(parsed.data);
+    log.info('Connector suggest', {
+        sourceName: parsed.data.sourceName,
+        entity: parsed.data.entity,
+        status: result.status,
+        dryRun: result.dryRun,
+    });
+    return c.json({ success: true, data: result });
 });
 
 // DELETE /connectors/:id — soft delete (deactivate)

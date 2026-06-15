@@ -131,7 +131,14 @@ async function main() {
         const pending = files.filter(f => !applied.has(f));
 
         if (pending.length === 0) {
-            console.log(`✓ All ${files.length} migration(s) already applied.`);
+            // Honest framing: this means the on-disk migration files match the
+            // tracker, NOT that the schema is "up to date" in any absolute sense.
+            // If the container image was built before the migration file was
+            // added, the file simply isn't on disk to apply. Surfaces the
+            // distinction so operators can spot stale-image issues quickly.
+            console.log(`✓ ${files.length} migration file(s) found in ${MIGRATIONS_DIR}`);
+            console.log(`  All are tracked as applied. No pending migrations.`);
+            console.log(`  (If you expected a new migration, verify it exists on disk in the running container.)`);
             return;
         }
 

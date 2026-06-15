@@ -234,7 +234,19 @@ export const FeedManifest = z.object({
     // Needed for APIs like ThreatFox that take a JSON query payload.
     body: z.union([z.string(), z.record(z.unknown())]).optional(),
     auth: z
-      .object({ type: z.enum(["none", "bearer", "apiKeyHeader"]).default("none"), header: z.string().optional() })
+      .object({
+        type: z.enum(["none", "bearer", "apiKeyHeader"]).default("none"),
+        // `header` is the HTTP header NAME to send the secret in:
+        //   - bearer:       ignored (always sent as `Authorization: Bearer …`)
+        //   - apiKeyHeader: the header name, e.g. "Auth-Key" for abuse.ch
+        header: z.string().optional(),
+        // `secretEnv` is the ENV VAR NAME that holds the secret value. Distinct
+        // from `header` because they rarely match — abuse.ch wants the
+        // "Auth-Key" header but the secret lives in THREATFOX_AUTH_KEY. The
+        // engine reads process.env[secretEnv]; the manifest never embeds the
+        // secret itself. Falls back to `header` for back-compat if omitted.
+        secretEnv: z.string().optional(),
+      })
       .default({ type: "none" }),
   }),
   format: z.enum(["json", "csv", "text"]),

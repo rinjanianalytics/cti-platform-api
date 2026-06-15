@@ -1,31 +1,91 @@
 {
   "id": "threatfox",
-  "name": "abuse.ch ThreatFox (JSON)",
+  "name": "abuse.ch ThreatFox (JSON API)",
   "enabled": true,
   "entity": "ioc",
   "source": {
     "url": "https://threatfox-api.abuse.ch/api/v1/",
     "method": "POST",
     "headers": { "Content-Type": "application/json" },
-    "auth": { "type": "none" }
+    "body": { "query": "get_iocs", "days": 7 },
+    "auth": { "type": "apiKeyHeader", "header": "Auth-Key" }
   },
   "format": "json",
   "extract": { "recordsPath": "data" },
   "mapping": {
-    "value":      { "from": "ioc", "transforms": [{ "op": "trim" }], "required": true },
-    "type":       { "from": "ioc_type", "transforms": [
-                      { "op": "mapEnum", "arg": { "table": {
-                          "ip:port": "ip", "domain": "domain", "url": "url",
-                          "md5_hash": "hash-md5", "sha1_hash": "hash-sha1", "sha256_hash": "hash-sha256" },
-                        "fallback": "domain" } }
-                    ], "required": true },
-    "source":     { "literal": "threatfox" },
-    "confidence": { "from": "confidence_level", "transforms": [{ "op": "toNumber" }] },
-    "severity":   { "from": "confidence_level", "transforms": [
-                      { "op": "mapEnum", "arg": { "table": {
-                          "100": "critical", "75": "high", "50": "medium" }, "fallback": "low" } }
-                    ] },
-    "tags":       { "from": "tags", "transforms": [] },
-    "firstSeen":  { "from": "first_seen", "transforms": [{ "op": "toIso" }] }
+    "value": {
+      "from": "ioc",
+      "transforms": [{ "op": "trim" }],
+      "required": true
+    },
+    "type": {
+      "from": "ioc_type",
+      "transforms": [
+        {
+          "op": "mapEnum",
+          "arg": {
+            "table": {
+              "ip:port": "ip",
+              "domain": "domain",
+              "url": "url",
+              "md5_hash": "hash-md5",
+              "sha1_hash": "hash-sha1",
+              "sha256_hash": "hash-sha256"
+            },
+            "fallback": "unknown"
+          }
+        }
+      ],
+      "required": true
+    },
+    "source": { "literal": "threatfox" },
+    "threatType": {
+      "from": "threat_type",
+      "transforms": [
+        {
+          "op": "mapEnum",
+          "arg": {
+            "table": {
+              "botnet_cc": "c2",
+              "payload_delivery": "malware",
+              "ransomware_payment_site": "ransomware",
+              "phishing": "phishing"
+            },
+            "fallback": "malware"
+          }
+        }
+      ]
+    },
+    "confidence": {
+      "from": "confidence_level",
+      "transforms": [{ "op": "toNumber" }]
+    },
+    "severity": {
+      "from": "confidence_level",
+      "transforms": [
+        {
+          "op": "bucketize",
+          "arg": {
+            "ranges": [
+              { "min": 75, "value": "high" },
+              { "min": 50, "max": 74, "value": "medium" }
+            ],
+            "fallback": "low"
+          }
+        }
+      ]
+    },
+    "tags": {
+      "from": "tags",
+      "transforms": [{ "op": "prepend", "arg": ["threatfox"] }]
+    },
+    "firstSeen": {
+      "from": "first_seen",
+      "transforms": [{ "op": "toIso" }]
+    },
+    "lastSeen": {
+      "from": "last_seen",
+      "transforms": [{ "op": "toIso" }]
+    }
   }
 }

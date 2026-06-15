@@ -2,7 +2,7 @@ import { Worker, Job } from 'bullmq';
 import { and, eq, gte, inArray, db } from '@rinjani/db';
 import { iocs } from '@rinjani/db/schema';
 import { connection } from '../../services/redis';
-import { getFeedHandler, getRegisteredFeeds } from '../../services/feedSync/feedRegistry';
+import { getRegisteredFeeds, resolveFeedHandler } from '../../services/feedSync/feedRegistry';
 import type { FeedSyncJobData } from '../types';
 import { flowProducer } from '../definitions';
 import { createLogger } from '../../lib/logger';
@@ -60,7 +60,7 @@ export const feedSyncWorker = new Worker<FeedSyncJobData>(
                 const results = await Promise.allSettled(
                     sources.map(async (s) => {
                         log.info(`[all] Starting feed: ${s}`);
-                        const handler = getFeedHandler(s)!;
+                        const handler = (await resolveFeedHandler(s))!;
                         const res = await handler(options);
                         log.info(`[all] Completed feed: ${s}`, {
                             added: res.indicatorsAdded,
@@ -109,7 +109,12 @@ export const feedSyncWorker = new Worker<FeedSyncJobData>(
                     return { skipped: true, reason: `Feed '${source}' is disabled` };
                 }
 
-                const handler = getFeedHandler(source);
+                // resolveFeedHandler consults FEED_ENGINE_ENABLED + the
+                // feed_manifest table and returns either an engine-backed
+                // handler or the legacy registry entry. With the flag off
+                // it short-circuits to the legacy path on the very first
+                // line — identical behaviour to the pre-A3 dispatch.
+                const handler = await resolveFeedHandler(source);
                 if (!handler) {
                     log.error(`Unknown feed source: ${source}`, new Error(`No handler registered for '${source}'`), {
                         jobId: job.id, registeredFeeds: getRegisteredFeeds(),

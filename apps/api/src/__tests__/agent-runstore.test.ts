@@ -32,13 +32,13 @@ afterEach(() => vi.resetAllMocks());
 
 describe('saveRun', () => {
     it('persists the full result (trace + proposals + meta) and returns the id', async () => {
-        const valuesMock = vi.fn(() => ({ returning: async () => [{ id: 'run-1' }] }));
+        const valuesMock = vi.fn((_v: Record<string, unknown>) => ({ returning: async () => [{ id: 'run-1' }] }));
         dbMock.insert.mockReturnValue({ values: valuesMock });
 
         const id = await saveRun(RESULT, 'analyst-7');
 
         expect(id).toBe('run-1');
-        const persisted = valuesMock.mock.calls[0][0] as Record<string, unknown>;
+        const persisted = valuesMock.mock.calls[0][0];
         expect(persisted.question).toBe(RESULT.question);
         expect(persisted.answer).toBe(RESULT.answer);
         expect(persisted.steps).toEqual(RESULT.steps);
@@ -57,13 +57,13 @@ describe('saveRun', () => {
 
 describe('saveFailedRun', () => {
     it('records a failed run with the error', async () => {
-        const valuesMock = vi.fn(() => ({ returning: async () => [{ id: 'run-2' }] }));
+        const valuesMock = vi.fn((_v: Record<string, unknown>) => ({ returning: async () => [{ id: 'run-2' }] }));
         dbMock.insert.mockReturnValue({ values: valuesMock });
 
         const id = await saveFailedRun('bad question', 'All LLM providers failed', 'u');
 
         expect(id).toBe('run-2');
-        const persisted = valuesMock.mock.calls[0][0] as Record<string, unknown>;
+        const persisted = valuesMock.mock.calls[0][0];
         expect(persisted.status).toBe('failed');
         expect(persisted.stopReason).toBe('error');
         expect(persisted.error).toBe('All LLM providers failed');

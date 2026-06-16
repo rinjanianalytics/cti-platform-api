@@ -105,4 +105,19 @@ describe('write-tool HITL gate (AA.3)', () => {
         expect(() => validateToolArgs('os.exec', {})).toThrow(/unknown tool/);
         expect(() => validateToolArgs('hypo.proposeEvidence', { hypothesisId: 'not-a-uuid', kind: 'supports', note: 'x', evidenceType: 'freeform' })).toThrow(/invalid args/);
     });
+
+    it('onchain.proposeWallet is a write tool — runTool refuses it', async () => {
+        expect(listTools().find((t) => t.name === 'onchain.proposeWallet')?.write).toBe(true);
+        await expect(
+            runTool('onchain.proposeWallet', { address: '0xabc', chain: 'eth', confidence: 80 }),
+        ).rejects.toThrow(/write tool.*committed via the HITL gate/);
+    });
+});
+
+describe('on-chain tools (AA.6.3)', () => {
+    it('onchain.lookup is a read tool in the catalog', () => {
+        const t = listTools().find((x) => x.name === 'onchain.lookup');
+        expect(t).toBeDefined();
+        expect(t!.write).toBe(false);
+    });
 });

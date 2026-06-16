@@ -100,3 +100,6 @@ export * from './telco';
 
 // Agent memory — AA.4 (persisted agentic-analytics runs + traces)
 export * from './agentRuns';
+
+// On-chain entity model — AA.6.1 / Phase 8 (wallets; follow-the-money)
+export * from './onchain';

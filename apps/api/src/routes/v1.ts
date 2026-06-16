@@ -15,6 +15,7 @@ import statsRoutes from './v1/stats';
 import mitreRoutes from './v1/mitre';
 import graphRoutes from './v1/graph';
 import agentRoutes from './v1/agent';
+import onchainRoutes from './v1/onchain';
 import v1SearchRoutes from './v1/search';
 import intelligenceRoutes from './v1/intelligence';
 import sightingRoutes from './v1/sightings';
@@ -131,6 +132,7 @@ v1.route('/', statsRoutes);      // /stats/*, /tactics, /monitoring/*
 v1.route('/', mitreRoutes);      // /techniques, /threat-actors, /malware, /tools
 v1.route('/', graphRoutes);      // /graph/layout, /graph/neo4j/*
 v1.route('/', agentRoutes);      // /agent/tools, /agent/tool/:name  (AA.1 tool plane)
+v1.route('/', onchainRoutes);    // /onchain/wallets  (AA.6.1 follow-the-money)
 v1.route('/', v1SearchRoutes);   // /search, /search/vector, /search/similar/*
 v1.route('/', intelligenceRoutes); // /intelligence/ioc/:value, /intelligence/cve/:cveId
 v1.route('/', sightingRoutes);   // /iocs/:id/sightings, /sightings/recent, /sightings/stats

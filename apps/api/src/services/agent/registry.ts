@@ -14,9 +14,16 @@
  */
 
 import { z } from 'zod';
+import { db, eq } from '@rinjani/db';
+import { hypotheses, hypothesisEvidence } from '@rinjani/db/schema';
 import { nlToCypherQuery } from '../nlCypher';
 import { neighborhoodExpand } from '../neo4jGraph';
 import { vectorSearch } from '../opensearch/vector';
+
+/** Per-call context the route supplies to a handler (e.g. the committing user). */
+export interface ToolContext {
+    userId?: string;
+}
 
 export interface AgentTool<A = unknown> {
     name: string;
@@ -24,8 +31,8 @@ export interface AgentTool<A = unknown> {
     description: string;
     /** Zod schema — validates the LLM-supplied args before the handler runs. */
     argsSchema: z.ZodType<A>;
-    /** The bound service call. */
-    handler: (args: A) => Promise<unknown>;
+    /** The bound service call. ctx carries request info (e.g. committing user). */
+    handler: (args: A, ctx?: ToolContext) => Promise<unknown>;
     /**
      * true = the tool mutates state and must be HITL-gated (AA.3). v1 has none;
      * runTool() refuses write tools until the gate exists, so a write tool
@@ -43,9 +50,10 @@ function register<A>(tool: AgentTool<A>): void {
 register({
     name: 'graph.nlQuery',
     description:
-        'Translate an English question into a read-only Cypher query over the threat graph and ' +
-        'return matching records. Use for "which / what / how-many" questions about actors, malware, ' +
-        'IOCs, campaigns, telco fraud schemes, signaling interfaces, etc.',
+        'Answer a question about the threat graph. Pass a plain-ENGLISH question in the "question" ' +
+        'arg (NOT Cypher — the tool writes the read-only Cypher for you) and it returns matching ' +
+        'records. Use for "which / what / how-many" questions about actors, malware, IOCs, campaigns, ' +
+        'telco fraud schemes, signaling interfaces, etc. Example args: {"question": "which actors use Emotet?"}.',
     argsSchema: z.object({
         question: z.string().min(3).max(500),
         limit: z.number().int().min(1).max(100).optional(),
@@ -79,6 +87,53 @@ register({
     handler: (args) => vectorSearch(args.query, args.k, args.entityType),
 });
 
+// ---- write tools (HITL-gated, AA.3) ---------------------------------------
+// The orchestrator may PROPOSE these; it never executes them. A proposed write
+// is staged in the run result; an analyst commits it via POST /v1/agent/commit,
+// which runs commitTool() — the only path that actually invokes a write handler.
+
+register({
+    name: 'hypo.proposeEvidence',
+    description:
+        'Propose a new evidence item supporting or refuting a hypothesis. This is a WRITE: it is ' +
+        'NOT applied during the run — it is staged for a human analyst to approve. Use when a tool ' +
+        'observation materially supports/refutes an existing hypothesis. Needs the hypothesis id.',
+    write: true,
+    argsSchema: z.object({
+        hypothesisId: z.string().uuid(),
+        evidenceType: z.enum(['ioc', 'relationship', 'sighting', 'actor', 'malware', 'campaign', 'report', 'freeform']),
+        kind: z.enum(['supports', 'refutes']),
+        note: z.string().min(1).max(2000),
+        entityId: z.string().max(255).optional(),
+        weight: z.number().int().min(0).max(100).optional(),
+    }),
+    handler: async (args, ctx) => {
+        // Executed ONLY via commitTool() (the HITL gate), never during a run.
+        const [parent] = await db
+            .select({ id: hypotheses.id, status: hypotheses.status })
+            .from(hypotheses)
+            .where(eq(hypotheses.id, args.hypothesisId))
+            .limit(1);
+        if (!parent) throw new Error(`hypothesis not found: ${args.hypothesisId}`);
+        if (parent.status !== 'active') {
+            throw new Error(`hypothesis is ${parent.status}; reopen it before adding evidence`);
+        }
+        const [row] = await db
+            .insert(hypothesisEvidence)
+            .values({
+                hypothesisId: args.hypothesisId,
+                evidenceType: args.evidenceType,
+                entityId: args.entityId ?? null,
+                kind: args.kind,
+                weight: args.weight ?? 50,
+                note: args.note,
+                createdBy: ctx?.userId ?? 'agent',
+            })
+            .returning();
+        return row;
+    },
+});
+
 export function getTool(name: string): AgentTool | undefined {
     return TOOLS[name];
 }
@@ -93,17 +148,13 @@ export function listTools(): Array<{ name: string; description: string; write: b
 }
 
 /**
- * Validate args against the tool's schema and run it. Throws on an unknown
- * tool, a write tool (until AA.3's HITL gate), or invalid args. The single
- * choke point both the AA.1 route and the AA.2 loop go through — so the
- * allowlist + validation can never be bypassed.
+ * Resolve + validate a tool call WITHOUT executing it. The shared front half of
+ * both runTool (reads) and commitTool (HITL writes), and what the orchestrator
+ * uses to stage a well-formed write proposal. Throws on unknown tool / bad args.
  */
-export async function runTool(name: string, rawArgs: unknown): Promise<unknown> {
+export function validateToolArgs(name: string, rawArgs: unknown): { tool: AgentTool; args: unknown } {
     const tool = getTool(name);
     if (!tool) throw new Error(`unknown tool: ${name}`);
-    if (tool.write) {
-        throw new Error(`tool '${name}' mutates state — HITL gate not implemented yet (AA.3)`);
-    }
     const parsed = tool.argsSchema.safeParse(rawArgs);
     if (!parsed.success) {
         const detail = parsed.error.issues
@@ -111,7 +162,33 @@ export async function runTool(name: string, rawArgs: unknown): Promise<unknown> 
             .join('; ');
         throw new Error(`invalid args for '${name}': ${detail}`);
     }
-    return tool.handler(parsed.data);
+    return { tool, args: parsed.data };
+}
+
+/**
+ * Validate + run a READ-ONLY tool. Refuses write tools — those must go through
+ * the HITL gate (commitTool). The choke point the AA.1 route and the AA.2 loop
+ * use, so the allowlist + validation + read-only rule can never be bypassed.
+ */
+export async function runTool(name: string, rawArgs: unknown): Promise<unknown> {
+    const { tool, args } = validateToolArgs(name, rawArgs);
+    if (tool.write) {
+        throw new Error(`tool '${name}' is a write tool — it must be committed via the HITL gate, not run directly`);
+    }
+    return tool.handler(args);
+}
+
+/**
+ * Validate + EXECUTE a write tool — the human-in-the-loop gate. Only reached by
+ * POST /v1/agent/commit after an analyst approves a staged proposal; the
+ * orchestrator never calls this. Refuses non-write tools (reads go via runTool).
+ */
+export async function commitTool(name: string, rawArgs: unknown, ctx?: ToolContext): Promise<unknown> {
+    const { tool, args } = validateToolArgs(name, rawArgs);
+    if (!tool.write) {
+        throw new Error(`tool '${name}' is read-only — use the run path, not the commit gate`);
+    }
+    return tool.handler(args, ctx);
 }
 
 /** Exposed for tests. */

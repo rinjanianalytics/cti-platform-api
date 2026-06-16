@@ -8,10 +8,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { nlMock } = vi.hoisted(() => ({ nlMock: vi.fn() }));
+const { nlMock, dbMock } = vi.hoisted(() => ({ nlMock: vi.fn(), dbMock: { select: vi.fn(), insert: vi.fn() } }));
 vi.mock('../services/nlCypher', () => ({ nlToCypherQuery: nlMock }));
+vi.mock('@rinjani/db', () => ({ db: dbMock, eq: (...args: unknown[]) => ({ _eq: args }) }));
 
-import { listTools, getTool, runTool, __testing } from '../services/agent/registry';
+import { listTools, getTool, runTool, commitTool, validateToolArgs, __testing } from '../services/agent/registry';
+
+const VALID_UUID = '00000000-0000-0000-0000-000000000001';
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -57,14 +60,49 @@ describe('runTool — allowlist + validation', () => {
         expect(nlMock).not.toHaveBeenCalled();
     });
 
-    it('refuses a write tool until the HITL gate exists (AA.3)', async () => {
-        // Register a throwaway write tool to prove runTool gates it.
-        __testing.TOOLS['test.write'] = {
-            name: 'test.write', description: 'x', write: true,
-            argsSchema: (await import('zod')).z.object({}),
-            handler: async () => 'should not run',
-        };
-        await expect(runTool('test.write', {})).rejects.toThrow(/mutates state.*HITL/);
-        delete __testing.TOOLS['test.write'];
+});
+
+describe('write-tool HITL gate (AA.3)', () => {
+    it('lists hypo.proposeEvidence as a write tool', () => {
+        const t = listTools().find((x) => x.name === 'hypo.proposeEvidence');
+        expect(t?.write).toBe(true);
+    });
+
+    it('runTool REFUSES a write tool — reads only (cannot bypass the gate)', async () => {
+        await expect(
+            runTool('hypo.proposeEvidence', { hypothesisId: VALID_UUID, evidenceType: 'freeform', kind: 'supports', note: 'x' }),
+        ).rejects.toThrow(/write tool.*committed via the HITL gate/);
+        expect(dbMock.insert).not.toHaveBeenCalled();
+    });
+
+    it('commitTool REFUSES a read tool (commit gate is for writes)', async () => {
+        await expect(commitTool('graph.nlQuery', { question: 'which actors?' })).rejects.toThrow(/read-only.*not the commit gate|read-only/i);
+        expect(nlMock).not.toHaveBeenCalled();
+    });
+
+    it('commitTool executes a write tool and stamps the committing user', async () => {
+        dbMock.select.mockReturnValue({ from: () => ({ where: () => ({ limit: async () => [{ id: VALID_UUID, status: 'active' }] }) }) });
+        dbMock.insert.mockReturnValue({ values: vi.fn((v: Record<string, unknown>) => ({ returning: async () => [{ id: 'ev1', ...v }] })) });
+
+        const out = await commitTool(
+            'hypo.proposeEvidence',
+            { hypothesisId: VALID_UUID, evidenceType: 'relationship', kind: 'supports', note: 'sim-swap exploits Diameter' },
+            { userId: 'analyst-7' },
+        ) as { createdBy: string; kind: string };
+
+        expect(out.kind).toBe('supports');
+        expect(out.createdBy).toBe('analyst-7'); // ctx.userId stamped, not 'agent'
+    });
+
+    it('commitTool rejects evidence on a non-active hypothesis', async () => {
+        dbMock.select.mockReturnValue({ from: () => ({ where: () => ({ limit: async () => [{ id: VALID_UUID, status: 'confirmed' }] }) }) });
+        await expect(
+            commitTool('hypo.proposeEvidence', { hypothesisId: VALID_UUID, evidenceType: 'freeform', kind: 'refutes', note: 'x' }),
+        ).rejects.toThrow(/confirmed.*reopen/);
+    });
+
+    it('validateToolArgs rejects unknown tool + bad args without executing', () => {
+        expect(() => validateToolArgs('os.exec', {})).toThrow(/unknown tool/);
+        expect(() => validateToolArgs('hypo.proposeEvidence', { hypothesisId: 'not-a-uuid', kind: 'supports', note: 'x', evidenceType: 'freeform' })).toThrow(/invalid args/);
     });
 });

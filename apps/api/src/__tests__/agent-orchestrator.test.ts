@@ -10,11 +10,18 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { llmMock, runToolMock } = vi.hoisted(() => ({ llmMock: vi.fn(), runToolMock: vi.fn() }));
+const { llmMock, runToolMock, getToolMock, validateArgsMock } = vi.hoisted(() => ({
+    llmMock: vi.fn(),
+    runToolMock: vi.fn(),
+    getToolMock: vi.fn(),
+    validateArgsMock: vi.fn(),
+}));
 
 vi.mock('../services/aiMiddleware', () => ({ callLLM: llmMock }));
 vi.mock('../services/agent/registry', () => ({
     runTool: runToolMock,
+    getTool: getToolMock,
+    validateToolArgs: validateArgsMock,
     listTools: () => [{ name: 'graph.nlQuery', description: 'query the graph', write: false }],
 }));
 
@@ -30,7 +37,11 @@ function llmReplies(...texts: string[]) {
     }));
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: every tool is a read tool (write:false) → runTool path.
+    getToolMock.mockImplementation((name: string) => ({ name, write: false }));
+});
 afterEach(() => vi.resetAllMocks());
 
 describe('runAgent — ReAct loop', () => {
@@ -105,6 +116,24 @@ describe('runAgent — ReAct loop', () => {
         expect(r.steps).toHaveLength(2);
         expect(r.answer).toBe('synthesized from 2 steps');
         expect(llmMock).toHaveBeenCalledTimes(3); // 2 loop turns + 1 synthesis
+    });
+
+    it('STAGES a write tool — proposes, never executes (the HITL invariant)', async () => {
+        getToolMock.mockImplementation((name: string) => ({ name, write: name === 'hypo.proposeEvidence' }));
+        validateArgsMock.mockReturnValue({
+            tool: { write: true },
+            args: { hypothesisId: 'h1', evidenceType: 'freeform', kind: 'supports', note: 'sim-swap exploits Diameter' },
+        });
+        llmReplies(
+            JSON.stringify({ tool: 'hypo.proposeEvidence', args: { hypothesisId: 'h1', evidenceType: 'freeform', kind: 'supports', note: 'sim-swap exploits Diameter' } }),
+            JSON.stringify({ final: 'proposed one evidence item for review' }),
+        );
+        const r = await runAgent('does sim-swap support hypothesis h1?');
+        expect(runToolMock).not.toHaveBeenCalled();              // write NEVER executed mid-run
+        expect(r.proposedActions).toHaveLength(1);
+        expect(r.proposedActions[0].tool).toBe('hypo.proposeEvidence');
+        expect(r.steps[0].observation).toContain('STAGED');
+        expect(r.answer).toBe('proposed one evidence item for review');
     });
 
     it('truncates a large observation before feeding it back', async () => {

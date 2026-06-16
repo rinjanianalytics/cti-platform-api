@@ -15,6 +15,8 @@
 
 import { z } from 'zod';
 import { nlToCypherQuery } from '../nlCypher';
+import { neighborhoodExpand } from '../neo4jGraph';
+import { vectorSearch } from '../opensearch/vector';
 
 export interface AgentTool<A = unknown> {
     name: string;
@@ -49,6 +51,32 @@ register({
         limit: z.number().int().min(1).max(100).optional(),
     }),
     handler: (args) => nlToCypherQuery(args.question, { limit: args.limit }),
+});
+
+register({
+    name: 'graph.expand',
+    description:
+        'Expand the neighborhood around a known graph node (by its id/name/value/stixId/cveId/mitreId) ' +
+        'to N hops. Use to PIVOT from an entity surfaced by a prior tool call to its connections.',
+    argsSchema: z.object({
+        nodeId: z.string().min(1).max(256),
+        depth: z.number().int().min(1).max(3).optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+    }),
+    handler: (args) => neighborhoodExpand(args.nodeId, args.depth, args.limit),
+});
+
+register({
+    name: 'rag.search',
+    description:
+        'Semantic (vector) search over indexed CTI entities. Use to find entities/past analysis ' +
+        'related to a concept when you do not have an exact name or graph anchor.',
+    argsSchema: z.object({
+        query: z.string().min(3).max(500),
+        k: z.number().int().min(1).max(20).optional(),
+        entityType: z.enum(['ioc', 'vulnerability', 'actor', 'malware', 'campaign']).optional(),
+    }),
+    handler: (args) => vectorSearch(args.query, args.k, args.entityType),
 });
 
 export function getTool(name: string): AgentTool | undefined {

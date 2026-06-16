@@ -8,9 +8,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { nlMock, dbMock } = vi.hoisted(() => ({ nlMock: vi.fn(), dbMock: { select: vi.fn(), insert: vi.fn() } }));
+const { nlMock, dbMock, vectorMock } = vi.hoisted(() => ({ nlMock: vi.fn(), dbMock: { select: vi.fn(), insert: vi.fn() }, vectorMock: vi.fn() }));
 vi.mock('../services/nlCypher', () => ({ nlToCypherQuery: nlMock }));
 vi.mock('@rinjani/db', () => ({ db: dbMock, eq: (...args: unknown[]) => ({ _eq: args }) }));
+vi.mock('../services/opensearch/vector', () => ({ vectorSearch: vectorMock }));
 
 import { listTools, getTool, runTool, commitTool, validateToolArgs, __testing } from '../services/agent/registry';
 
@@ -127,5 +128,22 @@ describe('SIEM tool (AA.5)', () => {
         const t = listTools().find((x) => x.name === 'siem.search');
         expect(t).toBeDefined();
         expect(t!.write).toBe(false);
+    });
+});
+
+describe('rag.search degrades gracefully (never throws a raw RAG/OpenSearch error at the agent)', () => {
+    it('returns the vector result on success', async () => {
+        vectorMock.mockResolvedValue({ items: [{ _score: 1 }], total: 1, took: 3 });
+        const out = await runTool('rag.search', { query: 'ransomware' }) as { items: unknown[]; total: number };
+        expect(out.total).toBe(1);
+        expect(out.items).toHaveLength(1);
+    });
+
+    it('catches a stale-mapping / index error and returns unavailable + empty, not a throw', async () => {
+        vectorMock.mockRejectedValue(new Error("search_phase_execution_exception: Field 'embedding' is not knn_vector type"));
+        const out = await runTool('rag.search', { query: 'Indodax hack' }) as { items: unknown[]; unavailable: boolean; note: string };
+        expect(out.unavailable).toBe(true);
+        expect(out.items).toEqual([]);
+        expect(out.note).toMatch(/RAG search unavailable/);
     });
 });

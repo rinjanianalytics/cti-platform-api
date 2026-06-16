@@ -6,7 +6,7 @@
 
 import { getNeo4jDriver, ensureNeo4jConstraints } from '../driver';
 import neo4j from 'neo4j-driver';
-import { syncActors, syncTactics, syncTechniques, syncMalware, syncTools, syncTelco, syncWallets } from '../syncEntities';
+import { syncActors, syncTactics, syncTechniques, syncMalware, syncTools, syncTelco, syncWallets, syncFrameworks } from '../syncEntities';
 import { syncRelationships, syncGenericRelationships } from '../syncRelationships';
 import { syncPulsesAndIOCs, syncAllIOCs, syncCVEs, syncSimilarIOCs } from '../syncIOCs';
 import { createLogger } from '../../../lib/logger';
@@ -23,6 +23,7 @@ export interface Neo4jSyncResult {
     genericRelationships: number;
     telco: number;
     wallets: number;
+    frameworks: number;
     pulses: number;
     iocs: number;
     cves: number;
@@ -62,6 +63,10 @@ export async function syncAllToNeo4j(
     // Wallet nodes before relationships, same ordering rule as telco — fund-flow
     // edges (cashed-out-to, sent-funds-to) can only hydrate once both endpoints exist.
     const walletCount = await syncWallets();
+    // FiGHT/ATLAS technique nodes before relationships, so the telco→FiGHT
+    // bridge (fraud_scheme -[uses]-> fight_technique) and actor→technique edges hydrate.
+    const frameworkCounts = await syncFrameworks();
+    const frameworkCount = frameworkCounts.fightTechniques + frameworkCounts.atlasTechniques;
     onProgress?.(68);
 
     const relCount = await syncRelationships();
@@ -119,6 +124,7 @@ export async function syncAllToNeo4j(
         genericRelationships: genericRelCount,
         telco: telcoCount,
         wallets: walletCount,
+        frameworks: frameworkCount,
         pulses: pulseCount,
         iocs: iocCount,
         cves: cveCount,

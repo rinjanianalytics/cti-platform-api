@@ -968,7 +968,7 @@ export type UpdateFeed = z.infer<typeof UpdateFeedSchema>;
 
 /** POST /v1/graph/neo4j/sync — Trigger a Neo4j sync job */
 export const Neo4jSyncSchema = z.object({
-    syncType: z.enum(['full', 'incremental', 'iocs', 'all-iocs', 'actors', 'cves', 'techniques', 'malware', 'tools', 'relationships', 'telco', 'onchain', 'pulses-iocs', 'similarity']).default('full'),
+    syncType: z.enum(['full', 'incremental', 'iocs', 'all-iocs', 'actors', 'cves', 'techniques', 'malware', 'tools', 'relationships', 'telco', 'onchain', 'frameworks', 'pulses-iocs', 'similarity']).default('full'),
     options: z.record(z.unknown()).default({}),
 });
 export type Neo4jSync = z.infer<typeof Neo4jSyncSchema>;
@@ -1741,6 +1741,8 @@ const RELATIONSHIP_ENTITY_TYPES = [
     'network-element', 'signaling-interface', 'fraud-scheme', 'fight-technique',
     // On-chain / follow-the-money (AA.6.2 / Phase 8)
     'wallet',
+    // MITRE ATLAS (AI) techniques (FW.1) — fight-technique above now graph-bridged too
+    'atlas-technique',
 ] as const;
 
 /** POST /v1/relationships — Create explicit relationship */

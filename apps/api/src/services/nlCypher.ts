@@ -48,6 +48,9 @@ const NEO4J_SCHEMA_DOC = `Node labels:
   - FraudScheme        — properties: {refId, name, schemeType, monetization, gsmaFsCategories, threeGppThreats}  // sim-swap/IRSF/wangiri
   // On-chain "follow the money" (Phase 8) — keyed on refId ("<chain>:<address>")
   - Wallet             — properties: {refId, address, chain, entityLabel, entityType, confidence, attributionSource, riskTags}  // attribution is confidence-weighted (0-100), never fact
+  // MITRE FiGHT (5G/telco threats) + ATLAS (AI-system threats) — keyed on id
+  - FightTechnique     — properties: {fightId, name, status, architectureSegment, tacticIds, platforms}  // 5G technique, e.g. FGT5004; architectureSegment RAN/Core/UE/OA&M
+  - AtlasTechnique     — properties: {atlasId, name, maturity, tacticIds, attackReferenceId}              // AI/ML technique, e.g. AML.T0043
 
 Edge types (rel-types in SCREAMING_SNAKE_CASE):
   - USES                  Actor → Malware|Tool|Technique
@@ -69,6 +72,9 @@ Edge types (rel-types in SCREAMING_SNAKE_CASE):
   - CASHED_OUT_TO         FraudScheme → Wallet        // telco fraud → crypto cashout
   - SENT_FUNDS_TO         Wallet → Wallet             // fund flow
   - CONTROLS_WALLET       Actor → Wallet              // attribution (confidence-weighted)
+  // MITRE FiGHT / ATLAS bridge edges (FW.1)
+  - USES                  FraudScheme → FightTechnique // 5G fraud scheme employs a FiGHT technique
+                          Actor → FightTechnique|AtlasTechnique
   - RELATED_TO            generic catch-all
 
 Edge properties: {description, confidence (0-100), syncedAt}

@@ -40,11 +40,10 @@ describe('Neo4j label map resolves telco entity types (guards the silent-skip)',
         expect(labelForEntityType('Network-Element')).toBe('NetworkElement');
     });
 
-    it('fight-technique is intentionally NOT graph-participating yet (relational bridge only)', () => {
-        // FiGHT isn't synced to Neo4j; the fraud_scheme→fight_technique edge is
-        // deferred. labelForEntityType must return null so the hydrate skips
-        // cleanly rather than MERGE-ing a phantom node.
-        expect(labelForEntityType('fight-technique')).toBeNull();
+    it('fight-technique is now graph-participating (FW.1 — FiGHT nodes synced)', () => {
+        // FW.1 syncs FiGHT technique nodes, so the fraud_scheme→fight_technique
+        // bridge hydrates. labelForEntityType now resolves it (was null pre-FW.1).
+        expect(labelForEntityType('fight-technique')).toBe('FightTechnique');
     });
 
     it('unknown types return null (not a crash)', () => {

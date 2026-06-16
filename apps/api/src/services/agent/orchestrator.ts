@@ -18,7 +18,7 @@
  */
 
 import { callLLM } from '../aiMiddleware';
-import { listTools, runTool } from './registry';
+import { listTools, runTool, getTool, validateToolArgs } from './registry';
 import { createLogger } from '../../lib/logger';
 
 const log = createLogger('AgentLoop');
@@ -35,12 +35,21 @@ export interface AgentStep {
     observation: string;
 }
 
+/** A write the agent proposed but did NOT execute — awaits analyst commit (AA.3). */
+export interface AgentProposedAction {
+    tool: string;
+    args: unknown;
+    summary: string;
+}
+
 export interface AgentRunResult {
     question: string;
     /** The final analytic answer, grounded in the tool observations. */
     answer: string;
     /** Full trace — provenance for HITL (AA.3) and agent memory (AA.4). */
     steps: AgentStep[];
+    /** Staged writes for the analyst to commit via POST /v1/agent/commit. Never auto-applied. */
+    proposedActions: AgentProposedAction[];
     stopReason: 'final' | 'max-steps' | 'no-answer';
     meta: { model: string; provider: string; steps: number };
 }
@@ -68,6 +77,9 @@ Rules:
   - graph.nlQuery answers English questions about the graph and returns records.
   - Base the final answer ONLY on observations — never invent data. If the graph
     has no data for part of the question, say so explicitly.
+  - Write tools (e.g. hypo.proposeEvidence) are PROPOSED, not executed: they are
+    staged for a human analyst to approve, so you may safely propose one when a
+    finding clearly supports/refutes a hypothesis.
   - Finish as soon as you can answer. Budget: at most ${maxSteps} tool calls.`;
 }
 
@@ -101,6 +113,7 @@ export async function runAgent(
     const maxSteps = Math.min(MAX_STEPS_CEILING, Math.max(1, opts.maxSteps ?? MAX_STEPS_DEFAULT));
     const system = buildSystemPrompt(maxSteps);
     const steps: AgentStep[] = [];
+    const proposed: AgentProposedAction[] = [];
     const transcript: string[] = [`QUESTION: ${question}`];
     const seen = new Set<string>();
     let meta = { model: '', provider: '' };
@@ -121,8 +134,8 @@ export async function runAgent(
             continue;
         }
         if (typeof action.final === 'string' && action.final.trim()) {
-            log.info('agent finished', { steps: steps.length, provider: meta.provider });
-            return { question, answer: action.final.trim(), steps, stopReason: 'final', meta: { ...meta, steps: steps.length } };
+            log.info('agent finished', { steps: steps.length, proposed: proposed.length, provider: meta.provider });
+            return { question, answer: action.final.trim(), steps, proposedActions: proposed, stopReason: 'final', meta: { ...meta, steps: steps.length } };
         }
         if (!action.tool) {
             transcript.push('OBSERVATION: you must call a tool or provide a non-empty "final".');
@@ -141,13 +154,27 @@ export async function runAgent(
         seen.add(sig);
 
         let observation: string;
-        try {
-            const result = await runTool(action.tool, action.args ?? {});
-            observation = JSON.stringify(result).slice(0, OBSERVATION_CAP);
-        } catch (err) {
-            // Tool/validation errors are fed back so the model can self-correct
-            // (unknown tool, bad args, write-tool refusal) — not thrown.
-            observation = `tool error: ${(err as Error).message}`;
+        const toolDef = getTool(action.tool);
+        if (toolDef?.write) {
+            // HITL: a write is PROPOSED, never executed mid-run. Validate it so
+            // the staged proposal is well-formed, then record it for the analyst.
+            try {
+                const { args } = validateToolArgs(action.tool, action.args ?? {});
+                const summary = `${action.tool}(${JSON.stringify(args)})`;
+                proposed.push({ tool: action.tool, args, summary });
+                observation = `STAGED for analyst approval (NOT executed): ${summary}. It will be applied only if a human commits it. Continue or finish.`;
+            } catch (err) {
+                observation = `tool error: ${(err as Error).message}`;
+            }
+        } else {
+            try {
+                const result = await runTool(action.tool, action.args ?? {});
+                observation = JSON.stringify(result).slice(0, OBSERVATION_CAP);
+            } catch (err) {
+                // Tool/validation errors (unknown tool, bad args) are fed back so
+                // the model can self-correct — not thrown.
+                observation = `tool error: ${(err as Error).message}`;
+            }
         }
         steps.push({ thought: action.thought, tool: action.tool, args: action.args, observation });
         transcript.push(`ACTION: ${JSON.stringify({ tool: action.tool, args: action.args })}\nOBSERVATION: ${observation}`);
@@ -161,12 +188,13 @@ export async function runAgent(
     meta = { model: llm.model, provider: llm.provider };
     const action = parseAction(llm.text);
     if (action && typeof action.final === 'string' && action.final.trim()) {
-        return { question, answer: action.final.trim(), steps, stopReason: 'max-steps', meta: { ...meta, steps: steps.length } };
+        return { question, answer: action.final.trim(), steps, proposedActions: proposed, stopReason: 'max-steps', meta: { ...meta, steps: steps.length } };
     }
     return {
         question,
         answer: 'Inconclusive — the agent reached its step budget without a definitive answer.',
         steps,
+        proposedActions: proposed,
         stopReason: 'no-answer',
         meta: { ...meta, steps: steps.length },
     };

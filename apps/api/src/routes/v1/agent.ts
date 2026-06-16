@@ -11,7 +11,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../../middleware/auth';
-import { listTools, getTool, runTool } from '../../services/agent/registry';
+import { listTools, getTool, runTool, commitTool } from '../../services/agent/registry';
 import { runAgent } from '../../services/agent/orchestrator';
 import { createLogger } from '../../lib/logger';
 
@@ -21,6 +21,11 @@ const log = createLogger('Agent');
 const AgentRunSchema = z.object({
     question: z.string().min(3).max(500),
     maxSteps: z.number().int().min(1).max(10).optional(),
+});
+
+const AgentCommitSchema = z.object({
+    tool: z.string().min(1),
+    args: z.record(z.string(), z.unknown()),
 });
 
 router.use('*', requireAuth);
@@ -71,6 +76,30 @@ router.post('/agent/run', requireRole('admin', 'analyst'), async (c) => {
         const message = (err as Error).message;
         log.error('agent run failed', { error: message });
         return c.json({ success: false, error: { code: 'AGENT_ERROR', message } }, 500);
+    }
+});
+
+// POST /agent/commit — the HUMAN-IN-THE-LOOP gate (AA.3). An analyst approves a
+// write the agent PROPOSED (from a run's proposedActions) and it is executed
+// here — the only path that runs a write tool's handler. commitTool refuses
+// read-only tools + unknown tools + bad args, and stamps the committing user.
+router.post('/agent/commit', requireRole('admin', 'analyst'), async (c) => {
+    const parsed = AgentCommitSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+        return c.json(
+            { success: false, error: { code: 'BAD_REQUEST', message: parsed.error.issues.map((i) => i.message).join('; ') } },
+            400,
+        );
+    }
+    const userId = c.get('user')?.id || 'unknown';
+    try {
+        const result = await commitTool(parsed.data.tool, parsed.data.args, { userId });
+        log.info('agent write committed', { tool: parsed.data.tool, by: userId });
+        return c.json({ success: true, data: { tool: parsed.data.tool, committed: result } }, 201);
+    } catch (err) {
+        const message = (err as Error).message;
+        log.warn('agent commit rejected', { tool: parsed.data.tool, error: message });
+        return c.json({ success: false, error: { code: 'COMMIT_ERROR', message } }, 400);
     }
 });
 

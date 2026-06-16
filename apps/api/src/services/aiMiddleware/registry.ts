@@ -25,7 +25,13 @@ export function getProviders(): Record<LLMProvider, ProviderConfig> {
             available: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
             endpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
             apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
-            defaultModel: 'gemini-2.0-flash',
+            // `gemini-2.0-flash` was retired by Google (404 NOT_FOUND "no longer
+            // available") — which silently broke every Gemini call in prod.
+            // GEMINI_MODEL env override so the next deprecation is a .env change,
+            // not a code+deploy. `gemini-flash-latest` auto-tracks the current
+            // flash GA model. Pin a dated model (e.g. gemini-2.5-flash) via env
+            // if you need reproducibility.
+            defaultModel: process.env.GEMINI_MODEL || 'gemini-flash-latest',
         },
         openrouter: {
             name: 'openrouter',

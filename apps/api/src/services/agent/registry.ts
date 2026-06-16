@@ -19,6 +19,8 @@ import { hypotheses, hypothesisEvidence } from '@rinjani/db/schema';
 import { nlToCypherQuery } from '../nlCypher';
 import { neighborhoodExpand } from '../neo4jGraph';
 import { vectorSearch } from '../opensearch/vector';
+import { lookupAddress } from '../arkham';
+import { upsertWallet } from '../onchainStore';
 
 /** Per-call context the route supplies to a handler (e.g. the committing user). */
 export interface ToolContext {
@@ -87,6 +89,20 @@ register({
     handler: (args) => vectorSearch(args.query, args.k, args.entityType),
 });
 
+register({
+    name: 'onchain.lookup',
+    description:
+        'Look up a crypto ADDRESS on Arkham Intelligence (BYO-key) → entity attribution: ' +
+        'entityName, entityType (exchange/individual/…), service, label. Read-only. Use to ' +
+        'attribute a wallet before proposing it. Arkham gives no confidence — YOU assign it ' +
+        'when proposing. args: {address, chain? (default "ethereum")}.',
+    argsSchema: z.object({
+        address: z.string().min(4).max(255),
+        chain: z.string().min(1).max(32).optional(),
+    }),
+    handler: (args) => lookupAddress(args.address, args.chain),
+});
+
 // ---- write tools (HITL-gated, AA.3) ---------------------------------------
 // The orchestrator may PROPOSE these; it never executes them. A proposed write
 // is staged in the run result; an analyst commits it via POST /v1/agent/commit,
@@ -131,6 +147,41 @@ register({
             })
             .returning();
         return row;
+    },
+});
+
+register({
+    name: 'onchain.proposeWallet',
+    description:
+        'Propose recording a crypto wallet + attribution (CONFIDENCE-WEIGHTED). This is a WRITE: ' +
+        'NOT applied during the run — staged for a human analyst to approve. Use after onchain.lookup ' +
+        'to persist an attribution you found. YOU set confidence (0-100) since Arkham gives none. ' +
+        'args: {address, chain, entityLabel?, entityType?, confidence, riskTags?, attributionSource?}.',
+    write: true,
+    argsSchema: z.object({
+        address: z.string().min(4).max(255),
+        chain: z.string().min(1).max(32),
+        name: z.string().max(500).optional(),
+        entityLabel: z.string().max(255).optional(),
+        entityType: z.string().max(64).optional(),
+        confidence: z.number().int().min(0).max(100),
+        riskTags: z.array(z.string()).optional(),
+        attributionSource: z.string().max(64).optional(),
+    }),
+    handler: async (args) => {
+        // Executed ONLY via commitTool() (the HITL gate). refId is the natural
+        // key "<chain>:<address>"; upsert is idempotent so re-attribution updates.
+        return upsertWallet({
+            refId: `${args.chain}:${args.address}`,
+            address: args.address,
+            chain: args.chain,
+            name: args.name ?? null,
+            entityLabel: args.entityLabel ?? null,
+            entityType: args.entityType ?? null,
+            confidence: args.confidence,
+            attributionSource: args.attributionSource ?? 'agent',
+            riskTags: args.riskTags ?? [],
+        } as never);
     },
 });
 

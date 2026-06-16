@@ -13,6 +13,7 @@ import workerRoutes from './ops/workers';
 import embeddingRoutes from './ops/embedding';
 import prometheusRoutes from './ops/prometheus';
 import sparklineRoutes from './ops/sparkline';
+import frameworksRoutes from './ops/frameworks';
 
 export const opsRouter = new Hono();
 
@@ -36,5 +37,8 @@ opsRouter.route('/', prometheusRoutes);
 
 // Sparkline data (Prometheus + PG fallback)
 opsRouter.route('/', sparklineRoutes);
+
+// MITRE FiGHT + ATLAS ingestion (FW.2)
+opsRouter.route('/', frameworksRoutes);
 
 export default opsRouter;

@@ -968,7 +968,7 @@ export type UpdateFeed = z.infer<typeof UpdateFeedSchema>;
 
 /** POST /v1/graph/neo4j/sync — Trigger a Neo4j sync job */
 export const Neo4jSyncSchema = z.object({
-    syncType: z.enum(['full', 'incremental', 'iocs', 'all-iocs', 'actors', 'cves', 'techniques', 'malware', 'tools', 'relationships', 'pulses-iocs', 'similarity']).default('full'),
+    syncType: z.enum(['full', 'incremental', 'iocs', 'all-iocs', 'actors', 'cves', 'techniques', 'malware', 'tools', 'relationships', 'telco', 'onchain', 'pulses-iocs', 'similarity']).default('full'),
     options: z.record(z.unknown()).default({}),
 });
 export type Neo4jSync = z.infer<typeof Neo4jSyncSchema>;
@@ -1739,6 +1739,8 @@ const RELATIONSHIP_ENTITY_TYPES = [
     'course-of-action', 'infrastructure',
     // Telco vertical (B1.2)
     'network-element', 'signaling-interface', 'fraud-scheme', 'fight-technique',
+    // On-chain / follow-the-money (AA.6.2 / Phase 8)
+    'wallet',
 ] as const;
 
 /** POST /v1/relationships — Create explicit relationship */

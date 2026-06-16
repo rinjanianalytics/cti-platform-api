@@ -299,6 +299,8 @@ const NEO4J_LABEL_BY_ENTITY: Record<string, string> = {
     'signaling_interface': 'SignalingInterface',
     'fraud-scheme': 'FraudScheme',
     'fraud_scheme': 'FraudScheme',
+    // On-chain / follow-the-money (AA.6.2). Nodes created by onchainSync.
+    wallet: 'Wallet',
     // NOTE: 'fight-technique' is intentionally NOT here. The fraud_scheme →
     // fight_technique link is recorded relationally (relationships table), but
     // FiGHT isn't synced to Neo4j yet, so its graph edge is deferred — the

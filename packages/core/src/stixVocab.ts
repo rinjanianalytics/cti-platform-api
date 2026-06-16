@@ -51,6 +51,11 @@ export const STIX_RELATIONSHIP_TYPES = [
     'uses-interface',
     'enables-fraud',
     'exploits-via',
+    // On-chain / follow-the-money (AA.6.2 / Phase 8) — kept in sync with the DB
+    // CHECK in 0066_onchain_relationship_types.sql and RELATIONSHIP_ENTITY_TYPES.
+    'sent-funds-to',    // wallet → wallet
+    'controls-wallet',  // actor → wallet
+    'cashed-out-to',    // fraud_scheme → wallet (the telco → crypto bridge)
 ] as const;
 
 export type STIXRelationshipType = typeof STIX_RELATIONSHIP_TYPES[number];

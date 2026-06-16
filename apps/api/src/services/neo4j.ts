@@ -18,6 +18,7 @@ export { syncActors, syncTactics, syncTechniques, syncMalware, syncTools } from 
 
 // Telco entity sync (B1.2) — NetworkElement / SignalingInterface / FraudScheme nodes
 export { syncTelco, syncNetworkElements, syncSignalingInterfaces, syncFraudSchemes } from './neo4j/syncEntities';
+export { syncWallets } from './neo4j/syncEntities';
 
 // MITRE relationship sync
 export { syncRelationships, syncGenericRelationships, labelForEntityType } from './neo4j/syncRelationships';

@@ -46,6 +46,8 @@ const NEO4J_SCHEMA_DOC = `Node labels:
   - NetworkElement     — properties: {refId, name, elementType, architectureSegment, vendor, description}  // HSS/UDM/AMF/MME/OCS/PCRF
   - SignalingInterface — properties: {refId, name, protocol, referencePoint, specRef}                       // SS7/Diameter/GTP
   - FraudScheme        — properties: {refId, name, schemeType, monetization, gsmaFsCategories, threeGppThreats}  // sim-swap/IRSF/wangiri
+  // On-chain "follow the money" (Phase 8) — keyed on refId ("<chain>:<address>")
+  - Wallet             — properties: {refId, address, chain, entityLabel, entityType, confidence, attributionSource, riskTags}  // attribution is confidence-weighted (0-100), never fact
 
 Edge types (rel-types in SCREAMING_SNAKE_CASE):
   - USES                  Actor → Malware|Tool|Technique
@@ -63,6 +65,10 @@ Edge types (rel-types in SCREAMING_SNAKE_CASE):
   - USES_INTERFACE        FraudScheme → SignalingInterface
   - ENABLES_FRAUD         NetworkElement → FraudScheme    // misconfig/exposure enables the scheme
   - EXPLOITS_VIA          FraudScheme → SignalingInterface
+  // On-chain follow-the-money edges (Phase 8)
+  - CASHED_OUT_TO         FraudScheme → Wallet        // telco fraud → crypto cashout
+  - SENT_FUNDS_TO         Wallet → Wallet             // fund flow
+  - CONTROLS_WALLET       Actor → Wallet              // attribution (confidence-weighted)
   - RELATED_TO            generic catch-all
 
 Edge properties: {description, confidence (0-100), syncedAt}

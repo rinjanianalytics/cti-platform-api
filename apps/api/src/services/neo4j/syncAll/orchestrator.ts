@@ -6,7 +6,7 @@
 
 import { getNeo4jDriver, ensureNeo4jConstraints } from '../driver';
 import neo4j from 'neo4j-driver';
-import { syncActors, syncTactics, syncTechniques, syncMalware, syncTools, syncTelco } from '../syncEntities';
+import { syncActors, syncTactics, syncTechniques, syncMalware, syncTools, syncTelco, syncWallets } from '../syncEntities';
 import { syncRelationships, syncGenericRelationships } from '../syncRelationships';
 import { syncPulsesAndIOCs, syncAllIOCs, syncCVEs, syncSimilarIOCs } from '../syncIOCs';
 import { createLogger } from '../../../lib/logger';
@@ -22,6 +22,7 @@ export interface Neo4jSyncResult {
     relationships: number;
     genericRelationships: number;
     telco: number;
+    wallets: number;
     pulses: number;
     iocs: number;
     cves: number;
@@ -58,6 +59,9 @@ export async function syncAllToNeo4j(
     // MATCH their endpoints and hydrate (B1.2).
     const telcoCounts = await syncTelco();
     const telcoCount = telcoCounts.networkElements + telcoCounts.signalingInterfaces + telcoCounts.fraudSchemes;
+    // Wallet nodes before relationships, same ordering rule as telco — fund-flow
+    // edges (cashed-out-to, sent-funds-to) can only hydrate once both endpoints exist.
+    const walletCount = await syncWallets();
     onProgress?.(68);
 
     const relCount = await syncRelationships();
@@ -114,6 +118,7 @@ export async function syncAllToNeo4j(
         relationships: relCount,
         genericRelationships: genericRelCount,
         telco: telcoCount,
+        wallets: walletCount,
         pulses: pulseCount,
         iocs: iocCount,
         cves: cveCount,

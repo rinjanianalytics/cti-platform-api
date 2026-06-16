@@ -301,10 +301,13 @@ const NEO4J_LABEL_BY_ENTITY: Record<string, string> = {
     'fraud_scheme': 'FraudScheme',
     // On-chain / follow-the-money (AA.6.2). Nodes created by onchainSync.
     wallet: 'Wallet',
-    // NOTE: 'fight-technique' is intentionally NOT here. The fraud_scheme →
-    // fight_technique link is recorded relationally (relationships table), but
-    // FiGHT isn't synced to Neo4j yet, so its graph edge is deferred — the
-    // hydrate skips it cleanly until a FiGHT node-sync exists.
+    // MITRE FiGHT (5G/telco) + ATLAS (AI) techniques (FW.1). Nodes created by
+    // frameworkSync — so the fraud_scheme → fight_technique bridge (and any
+    // actor → technique link) now hydrates into the unified graph.
+    'fight-technique': 'FightTechnique',
+    'fight_technique': 'FightTechnique',
+    'atlas-technique': 'AtlasTechnique',
+    'atlas_technique': 'AtlasTechnique',
 };
 
 /**

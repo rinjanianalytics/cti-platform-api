@@ -8,7 +8,7 @@ import type { Neo4jSyncJobData } from '../types';
 import {
     syncAllToNeo4j, syncActors, syncTactics, syncTechniques,
     syncMalware, syncTools, syncRelationships, syncGenericRelationships, syncPulsesAndIOCs, syncCVEs,
-    syncSimilarIOCs, syncAllIOCs, syncTelco, syncWallets,
+    syncSimilarIOCs, syncAllIOCs, syncTelco, syncWallets, syncFrameworks,
 } from '../../services/neo4j';
 import type { Neo4jSyncResult } from '../../services/neo4j';
 import { createLogger } from '../../lib/logger';
@@ -65,6 +65,9 @@ export const neo4jSyncWorker = new Worker<Neo4jSyncJobData>(
                     break;
                 case 'onchain':
                     result = { wallets: await syncWallets() };
+                    break;
+                case 'frameworks':
+                    result = await syncFrameworks();
                     break;
                 case 'pulses-iocs':
                     result = await syncPulsesAndIOCs(

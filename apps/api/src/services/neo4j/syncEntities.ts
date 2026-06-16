@@ -19,3 +19,7 @@ export {
     syncTelco, syncNetworkElements, syncSignalingInterfaces, syncFraudSchemes,
 } from './syncEntities/telcoSync';
 export { syncWallets, toWalletNode } from './syncEntities/onchainSync';
+export {
+    syncFrameworks, syncFightTechniques, syncAtlasTechniques,
+    toFightTechniqueNode, toAtlasTechniqueNode,
+} from './syncEntities/frameworkSync';

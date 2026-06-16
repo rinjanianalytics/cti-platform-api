@@ -22,6 +22,9 @@ import { vectorSearch } from '../opensearch/vector';
 import { lookupAddress } from '../arkham';
 import { upsertWallet } from '../onchainStore';
 import { siemSearch } from '../siemSearch';
+import { createLogger } from '../../lib/logger';
+
+const log = createLogger('AgentRegistry');
 
 /** Per-call context the route supplies to a handler (e.g. the committing user). */
 export interface ToolContext {
@@ -87,7 +90,19 @@ register({
         k: z.number().int().min(1).max(20).optional(),
         entityType: z.enum(['ioc', 'vulnerability', 'actor', 'malware', 'campaign']).optional(),
     }),
-    handler: (args) => vectorSearch(args.query, args.k, args.entityType),
+    handler: async (args) => {
+        // Degrade gracefully: RAG can be down, mid-reindex, or its index mapping
+        // can be stale (embedding not knn_vector → query_shard_exception). The
+        // agent must never get a raw OpenSearch exception — it reads this as "no
+        // RAG signal" and moves on, instead of the hunt dying on an infra hiccup.
+        try {
+            return await vectorSearch(args.query, args.k, args.entityType);
+        } catch (err) {
+            const reason = (err as Error).message.slice(0, 160);
+            log.warn('rag.search degraded — returning empty', { reason });
+            return { items: [], total: 0, unavailable: true, note: `RAG search unavailable: ${reason}` };
+        }
+    },
 });
 
 register({

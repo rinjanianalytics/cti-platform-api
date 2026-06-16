@@ -18,3 +18,4 @@ export { syncTools } from './syncEntities/toolSync';
 export {
     syncTelco, syncNetworkElements, syncSignalingInterfaces, syncFraudSchemes,
 } from './syncEntities/telcoSync';
+export { syncWallets, toWalletNode } from './syncEntities/onchainSync';

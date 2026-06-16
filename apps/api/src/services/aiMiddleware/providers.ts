@@ -14,10 +14,26 @@ export async function callGemini(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
+            // systemInstruction is Gemini v1beta's field for the system prompt.
+            // It was MISSING — OpenRouter (system role) and Ollama (body.system)
+            // both forward opts.systemPrompt, but Gemini silently dropped it, so
+            // every Gemini call ran without its system prompt (schema docs,
+            // output-format rules, etc.). That's why NL→Cypher's "{"cypher": …}"
+            // instruction never took: the model only saw the bare question.
+            ...(opts.systemPrompt && {
+                systemInstruction: { parts: [{ text: opts.systemPrompt }] },
+            }),
             generationConfig: {
                 temperature: opts.temperature ?? 0.3,
                 maxOutputTokens: opts.maxTokens ?? 4096,
                 ...(opts.jsonMode && { responseMimeType: 'application/json' }),
+                // gemini-flash-latest resolves to gemini-2.5-flash, whose
+                // thinking tokens count against maxOutputTokens — a low cap
+                // (e.g. NL→Cypher's 700) got consumed by reasoning before any
+                // answer was emitted, truncating the JSON mid-object. Cypher
+                // generation is deterministic; we don't want chain-of-thought.
+                // thinkingBudget:0 disables it (supported on 2.5-flash/-lite).
+                thinkingConfig: { thinkingBudget: 0 },
             },
         }),
     });

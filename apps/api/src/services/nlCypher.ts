@@ -128,28 +128,58 @@ export function isReadOnlyCypher(query: string): { ok: true } | { ok: false; rea
 }
 
 /**
- * Strip code fences, leading "Here is the query:" prose, and any trailing
- * explanation lines. Defensive parsing — LLMs sometimes ignore the
- * "no prose" instruction.
+ * Pull a Cypher query out of whatever the model actually returned.
+ *
+ * jsonMode ASKS for a clean `{"cypher": "<query>"}` object, but production
+ * showed gemini-flash-latest ignoring it in two ways: (a) a prose preamble
+ * before a fenced block ("Here is the JSON requested:\n```json{…}```"), and
+ * (b) truncated JSON when the query ran past maxTokens. So extraction must be
+ * robust to messy output rather than DEPEND on the model being clean. Tried in
+ * order, most-structured first:
+ *   1. A {"cypher": "<query>"} object found ANYWHERE in the text (tolerates a
+ *      prose preamble and surrounding fences — the run-1 failure).
+ *   2. The whole string as JSON, after stripping a leading/trailing fence
+ *      (the clean jsonMode path).
+ *   3. Salvage a raw query: from the first (OPTIONAL) MATCH to the end, with
+ *      any trailing fence/prose trimmed (rescues truncated-JSON output that
+ *      still contains a usable MATCH — the run-2 failure, and the ultimate
+ *      net for a provider that ignores jsonMode entirely).
+ *   4. Legacy plain-text: strip a "Cypher:" / "Query:" label.
  */
 function extractCypher(raw: string): string {
-    let s = raw.trim();
-    // Strip a leading ```json / ```cypher / ``` fence (some models add fences
-    // even under jsonMode).
-    s = s.replace(/^```(?:json|cypher|sql)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+    const s = raw.trim();
 
-    // Primary path: structured output {"cypher": "<query>"}. jsonMode makes
-    // this the expected shape; parsing the field is what stops a chatty model
-    // from returning a prose answer instead of a query.
-    try {
-        const obj = JSON.parse(s) as { cypher?: unknown };
-        if (obj && typeof obj.cypher === 'string') return obj.cypher.trim();
-    } catch {
-        /* not JSON — a provider may have ignored jsonMode; fall through */
+    // 1. A {"cypher": "..."} object anywhere — preamble/fence-tolerant. The
+    //    captured group is a JSON string body (handles \" and \n escapes); we
+    //    re-parse it as a JSON string literal to unescape.
+    const objMatch = s.match(/"cypher"\s*:\s*"((?:[^"\\]|\\.)*)"/i);
+    if (objMatch) {
+        try {
+            return (JSON.parse(`"${objMatch[1]}"`) as string).trim();
+        } catch {
+            /* malformed escape — fall through */
+        }
     }
 
-    // Fallback: legacy plain-text output. Strip a "Cypher:" / "Query:" label.
-    return s.replace(/^(?:cypher|query|here is the query)\s*:\s*/i, '').trim();
+    // 2. Whole string as JSON, after stripping one leading/trailing fence.
+    const unfenced = s.replace(/^```(?:json|cypher|sql)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+    try {
+        const obj = JSON.parse(unfenced) as { cypher?: unknown };
+        if (obj && typeof obj.cypher === 'string') return obj.cypher.trim();
+    } catch {
+        /* not JSON — fall through */
+    }
+
+    // 3. Salvage a raw query: grab from the first (OPTIONAL) MATCH onward,
+    //    dropping any trailing code fence the model wrapped it in. This also
+    //    rescues the // unanswerable sentinel when emitted bare.
+    const matchIdx = unfenced.search(/(?:OPTIONAL\s+)?MATCH\b/i);
+    if (matchIdx >= 0) {
+        return unfenced.slice(matchIdx).replace(/```[\s\S]*$/, '').trim();
+    }
+
+    // 4. Legacy plain-text output. Strip a "Cypher:" / "Query:" label.
+    return unfenced.replace(/^(?:cypher|query|here is the query)\s*:\s*/i, '').trim();
 }
 
 export interface NlCypherOptions {
@@ -189,7 +219,11 @@ export async function nlToCypherQuery(
     const llm = await callLLM(question, {
         systemPrompt: SYSTEM_PROMPT,
         temperature: 0.1, // we want Cypher determinism, not creative writing
-        maxTokens: 400,
+        // 700, not 400: a verbose model can spend tokens on a preamble + fenced
+        // JSON wrapper before the query, and a 400-cap truncated the JSON
+        // mid-string in prod (invalid → unparseable). Headroom keeps the
+        // {"cypher": "..."} object closed so extractCypher can read it.
+        maxTokens: 700,
         provider: opts.provider,
         // Structured output — force a {"cypher": "..."} object so chatty models
         // (e.g. gemini-flash-latest) can't return a prose explanation instead of

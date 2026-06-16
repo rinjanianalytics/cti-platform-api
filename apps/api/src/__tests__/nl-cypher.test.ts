@@ -195,6 +195,37 @@ describe('extractCypher — structured {"cypher": ...} output (B-fix: prose adhe
         const out = extractCypher('In mobile telecommunications, Diameter is the AAA protocol.');
         expect(isReadOnlyCypher(out).ok).toBe(false);
     });
+
+    // ---- prod 2026-06-16: gemini-flash-latest ignored jsonMode two ways ----
+
+    it('PROD run-1: preamble before a fenced JSON block — finds the cypher field anyway', () => {
+        // Observed verbatim: "Here is the JSON requested:\n```json\n{...}\n```".
+        // The old extractor only stripped a fence at the very START, so the
+        // preamble survived and isReadOnlyCypher rejected it ("no MATCH").
+        const raw = 'Here is the JSON requested:\n```json\n{"cypher": "MATCH (f:FraudScheme)-[:EXPLOITS_VIA]->(s:SignalingInterface) WHERE s.protocol = \'Diameter\' RETURN f.name LIMIT 25"}\n```';
+        const out = extractCypher(raw);
+        expect(out).toBe("MATCH (f:FraudScheme)-[:EXPLOITS_VIA]->(s:SignalingInterface) WHERE s.protocol = 'Diameter' RETURN f.name LIMIT 25");
+        expect(isReadOnlyCypher(out).ok).toBe(true);
+    });
+
+    it('PROD run-2: truncated JSON (cut at maxTokens) — salvages the raw MATCH', () => {
+        // Observed verbatim cypher fragment: '{\n  "diameter…' — JSON.parse
+        // fails on the truncated object, so the salvage path grabs from MATCH.
+        const raw = 'Some preamble.\n{\n  "cypher": "MATCH (f:FraudScheme)-[:EXPLOITS_VIA]->(s:SignalingInterface) RETURN f.name LIMIT 25';
+        const out = extractCypher(raw);
+        expect(out.startsWith('MATCH (f:FraudScheme)')).toBe(true);
+        expect(isReadOnlyCypher(out).ok).toBe(true);
+    });
+
+    it('finds the cypher field even with a leading prose preamble (no fence)', () => {
+        const out = extractCypher('Sure! {"cypher": "MATCH (n:IOC) RETURN n LIMIT 5"} hope that helps');
+        expect(out).toBe('MATCH (n:IOC) RETURN n LIMIT 5');
+    });
+
+    it('salvages a raw OPTIONAL MATCH query buried after prose, dropping a trailing fence', () => {
+        const out = extractCypher('Here you go:\nMATCH (a:Actor) RETURN a LIMIT 25\n```');
+        expect(out).toBe('MATCH (a:Actor) RETURN a LIMIT 25');
+    });
 });
 
 describe('SYSTEM_PROMPT requests structured JSON output', () => {

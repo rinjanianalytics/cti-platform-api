@@ -7,7 +7,7 @@
 import { getNeo4jDriver, ensureNeo4jConstraints } from '../driver';
 import neo4j from 'neo4j-driver';
 import { syncActors, syncTactics, syncTechniques, syncMalware, syncTools, syncTelco } from '../syncEntities';
-import { syncRelationships } from '../syncRelationships';
+import { syncRelationships, syncGenericRelationships } from '../syncRelationships';
 import { syncPulsesAndIOCs, syncAllIOCs, syncCVEs, syncSimilarIOCs } from '../syncIOCs';
 import { createLogger } from '../../../lib/logger';
 
@@ -20,6 +20,7 @@ export interface Neo4jSyncResult {
     malware: number;
     tools: number;
     relationships: number;
+    genericRelationships: number;
     telco: number;
     pulses: number;
     iocs: number;
@@ -60,6 +61,13 @@ export async function syncAllToNeo4j(
     onProgress?.(68);
 
     const relCount = await syncRelationships();
+    // syncRelationships() only hydrates USES (it resolves STIX UUID→MITRE ID).
+    // This second pass re-hydrates every OTHER graph-participating edge —
+    // telco (EXPLOITS_VIA, USES_INTERFACE, …) and STIX SDO links — so the graph
+    // is a true projection of Postgres, not dependent on insert ordering. This
+    // is what the "telco nodes must exist before syncRelationships()" comment
+    // above always assumed existed.
+    const genericRelCount = await syncGenericRelationships();
     onProgress?.(75);
 
     const { pulses: pulseCount, iocs: iocCount, links: linkCount } = await syncPulsesAndIOCs(500, 50);
@@ -104,6 +112,7 @@ export async function syncAllToNeo4j(
         malware: malwareCount,
         tools: toolCount,
         relationships: relCount,
+        genericRelationships: genericRelCount,
         telco: telcoCount,
         pulses: pulseCount,
         iocs: iocCount,

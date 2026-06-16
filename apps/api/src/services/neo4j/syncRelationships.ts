@@ -173,6 +173,97 @@ export async function syncRelationships(): Promise<number> {
     }
 }
 
+/**
+ * Re-hydrate EVERY non-USES graph-participating relationship edge from the
+ * relational source of truth.
+ *
+ * The specialised `syncRelationships()` above owns USES — it resolves STIX
+ * UUID→MITRE ID, which the generic matcher below can't do. This pass covers
+ * everything else: telco edges (EXPLOITS_VIA, USES_INTERFACE, ENABLES_FRAUD,
+ * CONNECTS_TO) and STIX SDO links (ATTRIBUTED_TO, INDICATES, MITIGATES, …).
+ *
+ * WHY THIS EXISTS: before it, those edges only ever hydrated at row-INSERT
+ * time via `autoHydrateRelationship`. A full graph rebuild (or a relationship
+ * row created BEFORE its endpoint nodes were synced) silently produced NO
+ * edge, and no full sync ever recovered it — Neo4j was not reconstructible
+ * from Postgres for any non-USES edge. The orchestrator comment "telco nodes
+ * must exist before syncRelationships() so telco edges can hydrate" assumed a
+ * pass like this; it didn't exist until now.
+ *
+ * Matches endpoints by mitreId|id|uuid (same matcher as
+ * `autoHydrateRelationship`), batched per (srcLabel, tgtLabel, edge). Rows
+ * whose endpoints don't resolve (e.g. a node not yet synced) are MATCH-skipped
+ * by Cypher, not errored. Idempotent (MERGE). Returns edges actually created.
+ */
+export async function syncGenericRelationships(): Promise<number> {
+    const rows = await db.select({
+        sourceType: mitreRelationships.sourceType,
+        sourceId: mitreRelationships.sourceId,
+        relationshipType: mitreRelationships.relationshipType,
+        targetType: mitreRelationships.targetType,
+        targetId: mitreRelationships.targetId,
+        description: mitreRelationships.description,
+        confidence: mitreRelationships.confidence,
+    }).from(mitreRelationships)
+        .where(sql`${mitreRelationships.relationshipType} <> 'uses'`);
+
+    if (rows.length === 0) return 0;
+
+    // Group by srcLabel|tgtLabel|edge — labels and rel-types can't be
+    // parameterised in Cypher, and they come from the closed allowlist
+    // (labelForEntityType / cypherEdgeLabel), so interpolation is safe.
+    const groups = new Map<string, Array<{ srcId: string; tgtId: string; desc: string; confidence: number | null }>>();
+    let skipped = 0;
+    for (const r of rows) {
+        const srcLabel = labelForEntityType(r.sourceType);
+        const tgtLabel = labelForEntityType(r.targetType);
+        if (!srcLabel || !tgtLabel) { skipped++; continue; }
+        const key = `${srcLabel}|${tgtLabel}|${cypherEdgeLabel(r.relationshipType)}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push({
+            srcId: r.sourceId,
+            tgtId: r.targetId,
+            desc: (r.description || '').slice(0, 300),
+            confidence: r.confidence ?? null,
+        });
+    }
+
+    let driver;
+    try {
+        driver = getNeo4jDriver();
+    } catch (err) {
+        log.warn('syncGenericRelationships skipped — Neo4j driver unavailable', { error: (err as Error).message });
+        return 0;
+    }
+
+    const session = driver.session();
+    let created = 0;
+    try {
+        for (const [key, edges] of Array.from(groups.entries())) {
+            const [srcLabel, tgtLabel, edge] = key.split('|');
+            const BATCH = 500;
+            for (let i = 0; i < edges.length; i += BATCH) {
+                const batch = edges.slice(i, i + BATCH);
+                const res = await session.run(`
+                    UNWIND $batch AS row
+                    MATCH (src:${srcLabel}) WHERE src.mitreId = row.srcId OR src.id = row.srcId OR src.uuid = row.srcId
+                    MATCH (tgt:${tgtLabel}) WHERE tgt.mitreId = row.tgtId OR tgt.id = row.tgtId OR tgt.uuid = row.tgtId
+                    MERGE (src)-[r:${edge}]->(tgt)
+                    SET r.description = coalesce(row.desc, ''),
+                        r.confidence = row.confidence,
+                        r.syncedAt = datetime()
+                `, { batch });
+                created += res.summary.counters.updates().relationshipsCreated;
+            }
+            log.info('Generic edges hydrated', { group: key, rows: edges.length });
+        }
+        log.info('Generic relationship hydration done', { created, groups: groups.size, skipped });
+        return created;
+    } finally {
+        await session.close();
+    }
+}
+
 // ============================================================================
 // Auto-hydrate hook — single-relationship side-effect on INSERT
 // ============================================================================

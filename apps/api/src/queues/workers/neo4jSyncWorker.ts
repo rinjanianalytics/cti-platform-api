@@ -7,7 +7,7 @@ import { connection } from '../../services/redis';
 import type { Neo4jSyncJobData } from '../types';
 import {
     syncAllToNeo4j, syncActors, syncTactics, syncTechniques,
-    syncMalware, syncTools, syncRelationships, syncPulsesAndIOCs, syncCVEs,
+    syncMalware, syncTools, syncRelationships, syncGenericRelationships, syncPulsesAndIOCs, syncCVEs,
     syncSimilarIOCs, syncAllIOCs, syncTelco,
 } from '../../services/neo4j';
 import type { Neo4jSyncResult } from '../../services/neo4j';
@@ -53,7 +53,12 @@ export const neo4jSyncWorker = new Worker<Neo4jSyncJobData>(
                     result = { tools: await syncTools() };
                     break;
                 case 'relationships':
-                    result = { relationships: await syncRelationships() };
+                    // Both passes: USES (MITRE UUID→ID) + every other graph edge
+                    // (telco, STIX SDO links) so a relationships-only sync is complete.
+                    result = {
+                        relationships: await syncRelationships(),
+                        genericRelationships: await syncGenericRelationships(),
+                    };
                     break;
                 case 'telco':
                     result = await syncTelco();

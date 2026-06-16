@@ -20,7 +20,7 @@ export { syncActors, syncTactics, syncTechniques, syncMalware, syncTools } from 
 export { syncTelco, syncNetworkElements, syncSignalingInterfaces, syncFraudSchemes } from './neo4j/syncEntities';
 
 // MITRE relationship sync
-export { syncRelationships, labelForEntityType } from './neo4j/syncRelationships';
+export { syncRelationships, syncGenericRelationships, labelForEntityType } from './neo4j/syncRelationships';
 
 // IOC sync (pulses, CVEs, all IOCs, similarity)
 export { syncPulsesAndIOCs, syncCVEs, syncAllIOCs, syncSimilarIOCs } from './neo4j/syncIOCs';

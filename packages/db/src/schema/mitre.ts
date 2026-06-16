@@ -11,7 +11,7 @@
  * and enhanced with MITRE IDs via the sync process.
  */
 
-import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, integer } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, integer, unique } from 'drizzle-orm/pg-core';
 
 // ============================================================================
 // Tactics (TA0001 - Initial Access, etc.)
@@ -94,7 +94,14 @@ export const mitreRelationships = pgTable('relationships', {
     rawData: jsonb('raw_data'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+    // Natural key — a relationship is identified by these five columns. The
+    // user-facing POST /v1/relationships upsert relies on ON CONFLICT against
+    // this constraint; without it every insert through that route fails.
+    // (migration 0063_relationships_natural_key_unique.sql)
+    naturalKey: unique('relationships_natural_key_unique')
+        .on(t.sourceType, t.sourceId, t.targetType, t.targetId, t.relationshipType),
+}));
 
 // Re-export threatActors and malware from threats.ts - they already exist
 // import { threatActors, malware } from './threats';

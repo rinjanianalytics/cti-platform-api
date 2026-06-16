@@ -80,19 +80,22 @@ into a SINGLE Cypher query against the Neo4j graph described below.
 ${NEO4J_SCHEMA_DOC}
 
 Output rules:
-  - Reply with ONLY the Cypher query. No prose. No code fences. No
-    explanation. No "Here is the query:" prefix.
-  - The query must start with MATCH or with a comment line starting
-    with //.
+  - Reply with ONLY a JSON object of the exact form {"cypher": "<query>"}.
+    Nothing else — no prose, no code fences, no explanation, no commentary
+    inside or outside the JSON. Do NOT answer the question in words; your
+    entire job is to put a Cypher query in the "cypher" field.
+  - The "cypher" value is a SINGLE Cypher query starting with MATCH (or a
+    // comment line).
   - Never emit CREATE, MERGE, SET, DELETE, DETACH, REMOVE, DROP, or
     CALL ... YIELD that has side effects.
   - Always include a LIMIT clause (use 25 unless the question implies
     otherwise) — except for COUNT/aggregation queries where a limit
     would be meaningless.
-  - If the question is ambiguous, pick the most useful interpretation
-    and emit the query for it.
-  - If the question can't be answered against this schema at all,
-    return exactly: // unanswerable`;
+  - If the question is ambiguous, pick the most useful interpretation.
+  - If the question can't be answered against this schema at all, return
+    exactly {"cypher": "// unanswerable"}.
+
+Example: {"cypher": "MATCH (a:Actor {name:'APT28'})-[:USES]->(m:Malware) RETURN m.name LIMIT 25"}`;
 
 const WRITE_KEYWORD_RE = /\b(CREATE|MERGE|SET|DELETE|DETACH|REMOVE|DROP)\b/i;
 const FORBIDDEN_PROCEDURE_RE = /\bCALL\s+(apoc\.create|apoc\.merge|apoc\.refactor|apoc\.periodic\.commit|db\.create|dbms\.security)\b/i;
@@ -131,11 +134,22 @@ export function isReadOnlyCypher(query: string): { ok: true } | { ok: false; rea
  */
 function extractCypher(raw: string): string {
     let s = raw.trim();
-    // Strip a leading ```cypher / ``` fence
-    s = s.replace(/^```(?:cypher|sql)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-    // Strip a leading "Cypher:" / "Query:" label
-    s = s.replace(/^(?:cypher|query|here is the query)\s*:\s*/i, '').trim();
-    return s;
+    // Strip a leading ```json / ```cypher / ``` fence (some models add fences
+    // even under jsonMode).
+    s = s.replace(/^```(?:json|cypher|sql)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+    // Primary path: structured output {"cypher": "<query>"}. jsonMode makes
+    // this the expected shape; parsing the field is what stops a chatty model
+    // from returning a prose answer instead of a query.
+    try {
+        const obj = JSON.parse(s) as { cypher?: unknown };
+        if (obj && typeof obj.cypher === 'string') return obj.cypher.trim();
+    } catch {
+        /* not JSON — a provider may have ignored jsonMode; fall through */
+    }
+
+    // Fallback: legacy plain-text output. Strip a "Cypher:" / "Query:" label.
+    return s.replace(/^(?:cypher|query|here is the query)\s*:\s*/i, '').trim();
 }
 
 export interface NlCypherOptions {
@@ -177,6 +191,11 @@ export async function nlToCypherQuery(
         temperature: 0.1, // we want Cypher determinism, not creative writing
         maxTokens: 400,
         provider: opts.provider,
+        // Structured output — force a {"cypher": "..."} object so chatty models
+        // (e.g. gemini-flash-latest) can't return a prose explanation instead of
+        // a query. Honored by all three providers (responseMimeType / response_format
+        // / format:json). extractCypher parses the field, with a plain-text fallback.
+        jsonMode: true,
     });
     const llmLatencyMs = Date.now() - t0;
 

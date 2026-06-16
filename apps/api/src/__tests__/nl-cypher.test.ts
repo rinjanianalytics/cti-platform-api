@@ -161,3 +161,45 @@ describe('NL→Cypher knows the telco subgraph (B1.5)', () => {
         expect(isReadOnlyCypher(q).ok).toBe(true);
     });
 });
+
+describe('extractCypher — structured {"cypher": ...} output (B-fix: prose adherence)', () => {
+    const { extractCypher } = __testing as unknown as { extractCypher: (s: string) => string };
+
+    it('parses the cypher field from a JSON object', () => {
+        const out = extractCypher('{"cypher": "MATCH (a:Actor) RETURN a LIMIT 25"}');
+        expect(out).toBe('MATCH (a:Actor) RETURN a LIMIT 25');
+    });
+
+    it('strips a ```json fence around the object', () => {
+        const out = extractCypher('```json\n{"cypher": "MATCH (n:IOC) RETURN n LIMIT 5"}\n```');
+        expect(out).toBe('MATCH (n:IOC) RETURN n LIMIT 5');
+    });
+
+    it('passes the // unanswerable sentinel through', () => {
+        expect(extractCypher('{"cypher": "// unanswerable"}')).toBe('// unanswerable');
+    });
+
+    it('falls back to plain Cypher when the model ignores jsonMode', () => {
+        expect(extractCypher('MATCH (f:FraudScheme) RETURN f LIMIT 25'))
+            .toBe('MATCH (f:FraudScheme) RETURN f LIMIT 25');
+    });
+
+    it('falls back to label-stripping for "Cypher:"-prefixed plain text', () => {
+        expect(extractCypher('Cypher: MATCH (n) RETURN n LIMIT 1')).toBe('MATCH (n) RETURN n LIMIT 1');
+    });
+
+    it('a prose answer (no cypher field, no query) yields non-Cypher text that isReadOnlyCypher rejects', () => {
+        // This is the exact prod failure: gemini returned a prose paragraph.
+        // With jsonMode it should not happen, but if a provider regresses, the
+        // safety guard still catches it downstream.
+        const out = extractCypher('In mobile telecommunications, Diameter is the AAA protocol.');
+        expect(isReadOnlyCypher(out).ok).toBe(false);
+    });
+});
+
+describe('SYSTEM_PROMPT requests structured JSON output', () => {
+    it('instructs the model to return {"cypher": ...}', () => {
+        expect(__testing.SYSTEM_PROMPT).toContain('"cypher"');
+        expect(__testing.SYSTEM_PROMPT).toMatch(/Do NOT answer the question in words/i);
+    });
+});

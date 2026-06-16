@@ -97,3 +97,6 @@ export * from './connectors';
 
 // Telco threat-domain entities — B1.1 (network elements, signaling interfaces, fraud schemes)
 export * from './telco';
+
+// Agent memory — AA.4 (persisted agentic-analytics runs + traces)
+export * from './agentRuns';

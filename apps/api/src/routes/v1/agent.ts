@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { requireAuth, requireRole } from '../../middleware/auth';
 import { listTools, getTool, runTool, commitTool } from '../../services/agent/registry';
 import { runAgent } from '../../services/agent/orchestrator';
+import { saveRun, saveFailedRun, getRun, listRuns } from '../../services/agent/runStore';
 import { createLogger } from '../../lib/logger';
 
 const router = new Hono();
@@ -69,14 +70,32 @@ router.post('/agent/run', requireRole('admin', 'analyst'), async (c) => {
             400,
         );
     }
+    const userId = c.get('user')?.id || 'unknown';
     try {
         const result = await runAgent(parsed.data.question, { maxSteps: parsed.data.maxSteps });
-        return c.json({ success: true, data: result });
+        const runId = await saveRun(result, userId); // persisted to agent memory (AA.4)
+        return c.json({ success: true, data: { runId, ...result } });
     } catch (err) {
         const message = (err as Error).message;
+        await saveFailedRun(parsed.data.question, message, userId);
         log.error('agent run failed', { error: message });
         return c.json({ success: false, error: { code: 'AGENT_ERROR', message } }, 500);
     }
+});
+
+// GET /agent/runs — recent runs (agent memory list).
+router.get('/agent/runs', async (c) => {
+    const limit = Number(c.req.query('limit')) || 25;
+    return c.json({ success: true, data: await listRuns(limit) });
+});
+
+// GET /agent/run/:id — a single persisted run (question, answer, trace, proposals).
+router.get('/agent/run/:id', async (c) => {
+    const id = c.req.param('id');
+    if (!id) return c.json({ success: false, error: { code: 'BAD_REQUEST', message: 'id required' } }, 400);
+    const run = await getRun(id);
+    if (!run) return c.json({ success: false, error: { code: 'NOT_FOUND', message: `run not found: ${id}` } }, 404);
+    return c.json({ success: true, data: run });
 });
 
 // POST /agent/commit — the HUMAN-IN-THE-LOOP gate (AA.3). An analyst approves a

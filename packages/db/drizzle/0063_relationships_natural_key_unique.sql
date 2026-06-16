@@ -13,6 +13,12 @@
 --
 -- Idempotent: dedup is a no-op when clean; constraint guarded by pg_constraint.
 
+-- ALSO add the created_by audit column. The same two routes write it, but it
+-- was never added to the table — so the INSERT failed at parse ("column
+-- created_by does not exist") BEFORE ON CONFLICT was even evaluated. Both
+-- breakages had to be fixed for the route to work.
+ALTER TABLE relationships ADD COLUMN IF NOT EXISTS created_by varchar(128);
+
 DO $$
 BEGIN
     -- 1. Remove exact-duplicate relationships so the unique index can build.

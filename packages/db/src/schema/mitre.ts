@@ -92,6 +92,10 @@ export const mitreRelationships = pgTable('relationships', {
     lastSeen: timestamp('last_seen'),
     source: varchar('source', { length: 64 }).default('mitre'),
     rawData: jsonb('raw_data'),
+    // Audit: who created the row. The user-facing POST /v1/relationships and
+    // /relationships/bulk routes write this; the column was never added to the
+    // table, so every insert through them failed at parse. (migration 0063)
+    createdBy: varchar('created_by', { length: 128 }),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (t) => ({

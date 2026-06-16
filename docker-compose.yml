@@ -482,6 +482,16 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      # LLM routing overrides (read by services/aiMiddleware/registry.ts +
+      # callLLM.ts). Without these forwarded, setting them in .env does
+      # nothing — the registry falls back to its hardcoded defaults (incl. the
+      # heavily rate-limited `:free` OpenRouter model). Same env-forwarding
+      # footgun as FEED_ENGINE_ENABLED.
+      #   OPENROUTER_MODEL — override the default Llama model; strip `:free`
+      #                      for the paid (un-rate-limited) tier.
+      #   LLM_PROVIDER     — pin the preferred provider (gemini|openrouter|ollama).
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-}
       # ── Enrichment API Keys ──
       - VIRUSTOTAL_API_KEY=${VIRUSTOTAL_API_KEY:-}
       - VIRUSTOTAL_LIVEHUNT_API_KEY=${VIRUSTOTAL_LIVEHUNT_API_KEY:-}

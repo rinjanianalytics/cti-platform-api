@@ -90,22 +90,40 @@ ioc | vulnerability | threat_actor | malware | campaign
 not an entity. `galaxyClusters` is intentionally excluded (MISP-only, not a
 Phase-2 STIX SDO).
 
-**Graph-participation — the canonical answer to "does a new domain need a Neo4j
-hydrate hook?"** Neo4j hydration fires on **relationship-table INSERT**, not
-entity INSERT (`services/neo4j/syncRelationships.ts` — "single-relationship
-side-effect on INSERT"). So an entity becomes a graph node only when some
-relationship referencing it is inserted.
+**Graph-participation — the canonical answer to "does a new domain need Neo4j
+wiring?"** ⚠️ Corrected 2026-06-15 (the B1 telco work proved the earlier
+"lazy MERGE on relationship insert" claim wrong). Neo4j uses **two separate
+mechanisms**:
+
+1. **Entity NODES** are created by dedicated batch sync functions
+   (`services/neo4j/syncEntities/*Sync.ts` — e.g. `actorSync` does
+   `MERGE (a:Actor {stixId})`), run on the scheduled `neo4j-sync` job. They
+   are NOT created on relationship insert.
+2. **Edges** are created by `autoHydrateRelationship()`
+   (`syncRelationships.ts`), which `MATCH`es BOTH endpoint nodes (they must
+   already exist) and only MERGEs the EDGE. It does **not** create nodes, and
+   silently skips when `NEO4J_LABEL_BY_ENTITY[type]` is unknown.
+
+So making a new entity graph-participating needs **three** things, not one:
+(a) a node-sync function + wiring into the orchestrator/worker, (b) a
+`NEO4J_LABEL_BY_ENTITY` entry, (c) the relationship-vocab + node-sync order so
+nodes exist before edges MATCH. Inserting a relationship without (a)/(b) = a
+Postgres row that never becomes a graph edge — silently. (See the telco
+implementation in `syncEntities/telcoSync.ts` for the worked example.)
 
 | Entity | Graph-participating? |
 |---|---|
 | `iocs`, `vulnerabilities`, `threat_actors`, `malware` | Yes |
 | `campaigns`, `courses_of_action`, `infrastructure` | Yes (STIX SDOs) |
 | `techniques`, `tools` | Yes (MITRE) |
-| `galaxy_clusters` | No (MISP-only, not bridged) |
+| `network_elements`, `signaling_interfaces`, `fraud_schemes` | Yes (telco, B1.2) |
+| `galaxy_clusters`, MITRE FiGHT | No (not synced to Neo4j) |
 
-**For future domains (telco / on-chain / AI-vuln):** a new entity type that
-participates in graph edges must land its hydrate hook on the **relationship-side
-worker**, not the entity-insert path.
+**Three vocab copies must agree** for a new relationship type/entity: the DB
+CHECK constraint, `STIX_RELATIONSHIP_TYPES` (core, route zod), and
+`RELATIONSHIP_ENTITY_TYPES` (schemas.ts). And the NL→Cypher prompt
+(`nlCypher.ts` `NEO4J_SCHEMA_DOC`) must list new labels/edges or the LLM can't
+target them.
 
 **Engine sink support is incremental.** `engineHandler.ts` dispatches on
 `manifest.entity` to an entity-specific sink; `resolveFeedHandler`'s

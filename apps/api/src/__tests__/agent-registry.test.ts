@@ -121,3 +121,11 @@ describe('on-chain tools (AA.6.3)', () => {
         expect(t!.write).toBe(false);
     });
 });
+
+describe('SIEM tool (AA.5)', () => {
+    it('siem.search is a read tool in the catalog', () => {
+        const t = listTools().find((x) => x.name === 'siem.search');
+        expect(t).toBeDefined();
+        expect(t!.write).toBe(false);
+    });
+});

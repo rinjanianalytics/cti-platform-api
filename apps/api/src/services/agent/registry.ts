@@ -21,6 +21,7 @@ import { neighborhoodExpand } from '../neo4jGraph';
 import { vectorSearch } from '../opensearch/vector';
 import { lookupAddress } from '../arkham';
 import { upsertWallet } from '../onchainStore';
+import { siemSearch } from '../siemSearch';
 
 /** Per-call context the route supplies to a handler (e.g. the committing user). */
 export interface ToolContext {
@@ -101,6 +102,22 @@ register({
         chain: z.string().min(1).max(32).optional(),
     }),
     handler: (args) => lookupAddress(args.address, args.chain),
+});
+
+register({
+    name: 'siem.search',
+    description:
+        'Search SIEM / log telemetry (Elastic/OpenSearch _search, BYO-endpoint) with a Lucene ' +
+        'query string. Read-only, size-capped, time-bounded. Use to check whether graph-derived ' +
+        'indicators (IPs, hashes, domains) actually appear in telemetry. Returns "not configured" ' +
+        'if no SIEM is wired. args: {query, index?, size? (<=100), sinceHours? (<=720)}.',
+    argsSchema: z.object({
+        query: z.string().min(1).max(1000),
+        index: z.string().max(128).optional(),
+        size: z.number().int().min(1).max(100).optional(),
+        sinceHours: z.number().int().min(1).max(720).optional(),
+    }),
+    handler: (args) => siemSearch(args),
 });
 
 // ---- write tools (HITL-gated, AA.3) ---------------------------------------

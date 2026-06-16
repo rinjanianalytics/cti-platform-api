@@ -1,0 +1,49 @@
+/**
+ * Agent routes (AA.1) — the agentic-analytics tool plane.
+ *
+ * AA.1 is the registry + a single-tool executor. NO LLM, NO loop yet — this is
+ * the validated, bound-handler foundation the ReAct orchestrator (AA.2) will
+ * call internally via runTool(). Exposing it as a route first lets us verify
+ * each tool round-trips through the allowlist + arg validation in isolation
+ * before the loop drives it.
+ */
+
+import { Hono } from 'hono';
+import { requireAuth, requireRole } from '../../middleware/auth';
+import { listTools, getTool, runTool } from '../../services/agent/registry';
+import { createLogger } from '../../lib/logger';
+
+const router = new Hono();
+const log = createLogger('Agent');
+
+router.use('*', requireAuth);
+
+// GET /agent/tools — the handler-backed registry (executable twin of the static
+// /v1/mcp/tools manifest).
+router.get('/agent/tools', (c) => {
+    return c.json({ success: true, data: listTools() });
+});
+
+// POST /agent/tool/:name — execute ONE validated, allowlisted tool.
+router.post('/agent/tool/:name', requireRole('admin', 'analyst'), async (c) => {
+    const name = c.req.param('name');
+    if (!name || !getTool(name)) {
+        return c.json(
+            { success: false, error: { code: 'UNKNOWN_TOOL', message: `unknown tool: ${name}` } },
+            404,
+        );
+    }
+    const args = await c.req.json().catch(() => ({}));
+    try {
+        const result = await runTool(name, args);
+        return c.json({ success: true, data: { tool: name, result } });
+    } catch (err) {
+        // Bad args / write-tool refusal → 400 (caller's fault); surface the
+        // validation detail so the eventual orchestrator can self-correct.
+        const message = (err as Error).message;
+        log.warn('agent tool call failed', { tool: name, error: message });
+        return c.json({ success: false, error: { code: 'TOOL_ERROR', message } }, 400);
+    }
+});
+
+export default router;

@@ -19,6 +19,7 @@
         "bullmq": "^5.77.3",
         "dotenv": "^17.2.3",
         "drizzle-orm": "^0.45.2",
+        "fast-xml-parser": "^4.5.0",
         "ioredis": "^5.10.1"
     },
     "devDependencies": {

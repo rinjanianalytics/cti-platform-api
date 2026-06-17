@@ -62,6 +62,12 @@ export async function syncOpenPhishFeed(): Promise<SyncResult> {
     return normalise(await syncOpenPhish());
 }
 
+export async function syncOFACFeed(): Promise<SyncResult> {
+    // @ts-ignore — worker scripts outside rootDir, resolved at runtime
+    const { syncOFAC } = await import('../../../../worker/src/feeds/ofac');
+    return normalise(await syncOFAC());
+}
+
 export async function syncMITREFeed(): Promise<SyncResult> {
     try {
         // @ts-ignore

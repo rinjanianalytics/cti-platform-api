@@ -149,6 +149,20 @@ export const JOB_REGISTRY: ScheduledJobRegistration[] = [
         queue: feedSyncQueue,
         payload: { source: 'openphish' },
     },
+    {
+        // OFAC SDN sanctioned crypto addresses (US Treasury). The free,
+        // authoritative on-chain attribution feed — dual-sinks to iocs
+        // (tag `sanctioned`, drives Landscape shift) + wallets. OFAC only
+        // republishes on a designation action (days–weeks apart), so daily
+        // at 03:00 UTC is ample; the upsert is idempotent.
+        key: 'ofacSync',
+        jobId: 'scheduled-ofac-sync',
+        name: 'ofac-sync',
+        description: 'Sync OFAC SDN sanctioned cryptocurrency addresses',
+        defaultCron: '0 3 * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'ofac' },
+    },
 
     // --- Knowledge base syncs ------------------------------------------
     {

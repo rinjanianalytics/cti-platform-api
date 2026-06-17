@@ -20,7 +20,7 @@ import { syncCveOrgFeed } from './cveOrgSync';
 import {
     syncAbuseSSLFeed, syncThreatFoxFeed, syncURLhausFeed,
     syncMalwareBazaarFeed, syncOpenPhishFeed, syncMITREFeed, syncMISPGalaxyFeed,
-    syncEPSSFeed,
+    syncEPSSFeed, syncOFACFeed,
 } from './additionalFeeds';
 import { syncHibpBreaches } from './hibpSync';
 import { FeedManifest as FeedManifestSchema } from '@rinjani/feed-engine';
@@ -47,6 +47,10 @@ const FEED_REGISTRY: Record<string, FeedHandler> = {
     urlhaus: () => syncURLhausFeed(),
     malwarebazaar: () => syncMalwareBazaarFeed(),
     openphish: () => syncOpenPhishFeed(),
+    // OFAC SDN sanctioned crypto addresses — the one free, authoritative
+    // on-chain attribution source. Dual-sinks to iocs (tag `sanctioned`,
+    // surfaces in Landscape shift) + wallets (entityType `sanctioned`).
+    ofac: () => syncOFACFeed(),
     mitre: () => syncMITREFeed(),
     mispgalaxy: () => syncMISPGalaxyFeed(),
     // EPSS — FIRST.org's daily exploit-prediction score. Pairs with the

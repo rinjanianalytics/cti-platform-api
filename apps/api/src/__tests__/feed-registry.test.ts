@@ -15,9 +15,11 @@ describe('Feed Registry', () => {
     // `epss` joined as Phase 1's exploit-prediction enrichment.
     // `hibp` joined as Phase 5 #3's HIBP breach catalog (free-tier
     // /breaches sync only — no paid /breachedaccount).
+    // `ofac` joined as the free, authoritative on-chain attribution feed
+    // (OFAC SDN sanctioned crypto addresses; dual-sinks iocs + wallets).
     const EXPECTED_FEEDS = [
         'otx', 'cisa', 'cveorg', 'nvd', 'abusessl', 'threatfox',
-        'urlhaus', 'malwarebazaar', 'openphish', 'mitre', 'mispgalaxy',
+        'urlhaus', 'malwarebazaar', 'openphish', 'ofac', 'mitre', 'mispgalaxy',
         'epss', 'hibp',
     ];
 

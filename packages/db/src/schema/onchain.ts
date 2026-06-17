@@ -9,7 +9,8 @@
  *
  * PLAN INVARIANT — on-chain attribution is CONFIDENCE-WEIGHTED, NEVER asserted
  * as fact. `entity_label`/`entity_type` always travel with a `confidence`
- * (0–100) and an `attribution_source` (arkham | manual | heuristic). A label is
+ * (0–100) and an `attribution_source` (ofac | scamsniffer | defillama |
+ * blockscout | misttrack | manual | agent). A label is
  * a claim, not a truth. The graph edges added in AA.6.2 carry confidence too.
  *
  * No external data is bundled — wallets are operator-entered or enriched via
@@ -34,7 +35,7 @@ export const wallets = pgTable('wallets', {
     entityType: varchar('entity_type', { length: 64 }),                // exchange | mixer | personal | defi | sanctioned | …
     // 0–100 confidence in the attribution. Default 50 = "no strong signal".
     confidence: integer('confidence').notNull().default(50),
-    attributionSource: varchar('attribution_source', { length: 64 }),  // arkham | manual | heuristic
+    attributionSource: varchar('attribution_source', { length: 64 }),  // ofac | scamsniffer | defillama | blockscout | misttrack | manual | agent
     riskTags: jsonb('risk_tags').$type<string[]>().notNull().default([]),                            // ["sanctioned","mixer"]
     externalReferences: jsonb('external_references').$type<Record<string, unknown>[]>().notNull().default([]),
     labels: jsonb('labels').$type<string[]>().notNull().default([]),

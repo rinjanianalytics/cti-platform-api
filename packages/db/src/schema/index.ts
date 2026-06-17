@@ -103,3 +103,6 @@ export * from './agentRuns';
 
 // On-chain entity model — AA.6.1 / Phase 8 (wallets; follow-the-money)
 export * from './onchain';
+
+// AI-incident model — AI vertical (incidentdatabase.ai feed)
+export * from './aiIncidents';

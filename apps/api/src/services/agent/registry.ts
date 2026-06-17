@@ -19,7 +19,7 @@ import { hypotheses, hypothesisEvidence } from '@rinjani/db/schema';
 import { nlToCypherQuery } from '../nlCypher';
 import { neighborhoodExpand } from '../neo4jGraph';
 import { vectorSearch } from '../opensearch/vector';
-import { lookupAddress } from '../arkham';
+import { lookupAddress } from '../onchainLookup';
 import { upsertWallet } from '../onchainStore';
 import { siemSearch } from '../siemSearch';
 import { createLogger } from '../../lib/logger';
@@ -108,10 +108,12 @@ register({
 register({
     name: 'onchain.lookup',
     description:
-        'Look up a crypto ADDRESS on Arkham Intelligence (BYO-key) → entity attribution: ' +
-        'entityName, entityType (exchange/individual/…), service, label. Read-only. Use to ' +
-        'attribute a wallet before proposing it. Arkham gives no confidence — YOU assign it ' +
-        'when proposing. args: {address, chain? (default "ethereum")}.',
+        'Look up a crypto ADDRESS across FREE on-chain attribution sources → merged, ' +
+        'provenance-tagged attribution: entityName, entityType, isContract, riskScore/riskLevel, ' +
+        'tags, and a `sources` list (db = our OFAC/ScamSniffer/curated labels, blockscout, ' +
+        'defillama, misttrack if a key is set). Read-only; never throws. Use to attribute a ' +
+        'wallet before proposing it. `confidence` is only set when our DB already knows the ' +
+        'address — otherwise YOU assign it when proposing. args: {address, chain? (default "ethereum")}.',
     argsSchema: z.object({
         address: z.string().min(4).max(255),
         chain: z.string().min(1).max(32).optional(),
@@ -187,8 +189,8 @@ register({
     description:
         'Propose recording a crypto wallet + attribution (CONFIDENCE-WEIGHTED). This is a WRITE: ' +
         'NOT applied during the run — staged for a human analyst to approve. Use after onchain.lookup ' +
-        'to persist an attribution you found. YOU set confidence (0-100) since Arkham gives none. ' +
-        'args: {address, chain, entityLabel?, entityType?, confidence, riskTags?, attributionSource?}.',
+        'to persist an attribution you found. YOU set confidence (0-100) based on how many sources ' +
+        'agreed. args: {address, chain, entityLabel?, entityType?, confidence, riskTags?, attributionSource?}.',
     write: true,
     argsSchema: z.object({
         address: z.string().min(4).max(255),

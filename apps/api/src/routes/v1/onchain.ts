@@ -5,8 +5,9 @@
  *
  * POST (upsert by ref_id) · GET list (filter + q) · GET :id · DELETE :id.
  * Reads open to any authenticated user; writes require admin/analyst/developer.
- * Mirrors /v1/telco. Graph bridging (fund-flow edges, telco→wallet cashout) and
- * the BYO-key Arkham enrichment tool are AA.6.2.
+ * Mirrors /v1/telco. Live attribution comes from the free multi-source lookup
+ * (services/onchainLookup.ts): our DB + Blockscout + DefiLlama + optional
+ * MistTrack. No paid Arkham dependency.
  *
  * Invariant: attribution is a CLAIM — entity_label/entity_type ride with a
  * confidence (0–100) and a source. Never asserted as fact.

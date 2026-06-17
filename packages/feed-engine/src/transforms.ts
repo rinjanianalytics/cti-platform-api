@@ -40,7 +40,12 @@ const REGISTRY: Record<TransformStep["op"], TransformFn> = {
     if (typeof v !== "string") return v;
     const { pattern, group = 0 } = (arg ?? {}) as { pattern?: string; group?: number };
     if (!pattern) return v;
-    const m = v.match(new RegExp(pattern));
+    // Guard `new RegExp` so a malformed manifest pattern yields "no match"
+    // instead of throwing — keeps applyTransforms a TOTAL function (it never
+    // throws on any input), so a bad pattern can't take down a record.
+    let re: RegExp;
+    try { re = new RegExp(pattern); } catch { return undefined; }
+    const m = v.match(re);
     return m ? m[group] : undefined;
   },
 

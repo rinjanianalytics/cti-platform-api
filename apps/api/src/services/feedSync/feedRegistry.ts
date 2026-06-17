@@ -20,7 +20,7 @@ import { syncCveOrgFeed } from './cveOrgSync';
 import {
     syncAbuseSSLFeed, syncThreatFoxFeed, syncURLhausFeed,
     syncMalwareBazaarFeed, syncOpenPhishFeed, syncMITREFeed, syncMISPGalaxyFeed,
-    syncEPSSFeed, syncOFACFeed,
+    syncEPSSFeed, syncOFACFeed, syncAIIncidentsFeed,
 } from './additionalFeeds';
 import { syncHibpBreaches } from './hibpSync';
 import { FeedManifest as FeedManifestSchema } from '@rinjani/feed-engine';
@@ -51,6 +51,10 @@ const FEED_REGISTRY: Record<string, FeedHandler> = {
     // on-chain attribution source. Dual-sinks to iocs (tag `sanctioned`,
     // surfaces in Landscape shift) + wallets (entityType `sanctioned`).
     ofac: () => syncOFACFeed(),
+    // AI Incident Database — real-world AI harm/failure incidents
+    // (incidentdatabase.ai). The live AI-threat-landscape signal; sinks to
+    // the dedicated ai_incidents table.
+    aiid: () => syncAIIncidentsFeed(),
     mitre: () => syncMITREFeed(),
     mispgalaxy: () => syncMISPGalaxyFeed(),
     // EPSS — FIRST.org's daily exploit-prediction score. Pairs with the

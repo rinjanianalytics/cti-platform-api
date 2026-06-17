@@ -150,6 +150,19 @@ export const JOB_REGISTRY: ScheduledJobRegistration[] = [
         payload: { source: 'openphish' },
     },
     {
+        // AI Incident Database (incidentdatabase.ai). The live AI-threat
+        // landscape signal — real-world AI harm/failure incidents. Paged from
+        // the GraphQL API (~8 small requests for the ~1.5k corpus), so daily
+        // at 02:15 UTC is cheap. Idempotent upsert on incident_id.
+        key: 'aiidSync',
+        jobId: 'scheduled-aiid-sync',
+        name: 'aiid-sync',
+        description: 'Sync AI Incident Database (incidentdatabase.ai) incidents',
+        defaultCron: '15 2 * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'aiid' },
+    },
+    {
         // OFAC SDN sanctioned crypto addresses (US Treasury). The free,
         // authoritative on-chain attribution feed — dual-sinks to iocs
         // (tag `sanctioned`, drives Landscape shift) + wallets. OFAC only

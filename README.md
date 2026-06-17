@@ -15,7 +15,10 @@ By [RinjaniAnalytics](https://rinjanianalytics.com) — paired with the [cti-pla
 
 ## 🚀 Features
 
-- **Direct feed sync, no middlemen** — CISA KEV · NVD · CVE.org cvelistV5 · MITRE ATT&CK · MISP Galaxy · AlienVault OTX · abuse.ch SSL/ThreatFox/URLhaus/MalwareBazaar · OpenPhish
+- **Three-domain coverage in one graph** — the differentiator: **Telco-5G** (MITRE FiGHT), **AI** (MITRE ATLAS + the AI Incident Database), and **Blockchain** (OFAC sanctioned + ScamSniffer scam + DefiLlama protocol attribution) unified in a single threat graph and a single agentic-analytics layer — not three siloed tools.
+- **Direct feed sync, no middlemen** — 18 sources, all free: CISA KEV · NVD · CVE.org cvelistV5 · MITRE ATT&CK · MISP Galaxy · AlienVault OTX · abuse.ch SSL/ThreatFox/URLhaus/MalwareBazaar · OpenPhish · EPSS · HIBP · **OFAC SDN sanctioned crypto** · **ScamSniffer scam addresses** · **DefiLlama protocol labels** · **AI Incident Database**
+- **Free multi-source on-chain attribution** — given an address, fans out to our DB (OFAC/ScamSniffer/DefiLlama) + Blockscout + DefiLlama + optional MistTrack and merges by precedence with full provenance — **no paid Arkham/Chainalysis dependency**
+- **Agentic analytics** — a bounded JSON-ReAct hunt loop over a closed, read-only tool plane (graph NL→Cypher, RAG, on-chain lookup, SIEM) with HITL-gated proposed writes
 - **Polyglot storage** — Postgres (Drizzle ORM) for the canonical store, OpenSearch for full-text + vector search, Neo4j for the threat-relationship graph, Redis for queues + cache
 - **Pipeline orchestration** — BullMQ workers with `FlowProducer` parent/child graphs, scheduled jobs, work-driven enrichment via Postgres `NOTIFY`
 - **Embedded Workbench BullMQ dashboard** — vendored fork at `/admin/workbench` with custom scheduler edit/run-now/disable actions delegating to our control plane (see [packages/workbench-core/](packages/workbench-core/))
@@ -29,7 +32,7 @@ By [RinjaniAnalytics](https://rinjanianalytics.com) — paired with the [cti-pla
 ## 📸 Screenshots
 
 ### Threat Command — analyst dashboard
-`/` is the analyst's at-a-glance entry point: KPI tiles (indicators, vulnerabilities, threat actors, active feeds) with rolling-window sparklines and delta %, a priority-triage queue of CRIT IOCs awaiting verdict, severity distribution, ATT&CK coverage, indicator-type breakdown, trending tags, actor watchlist, and a semantic events stream on the right rail (KEV adds, high-CVSS CVEs, new actors, big pulses, sync failures). The 24H / 7D / 30D switcher scopes every tile and panel to the selected window.
+`/` is the analyst's at-a-glance entry point. KPI tiles (indicators, vulnerabilities, threat actors, active feeds) with rolling-window sparklines and delta % sit above a **strategic-verticals row** — live AI-incident, Telco-5G, and on-chain attribution counts, the platform's differentiator surfaced first. Below: framework coverage (FiGHT · ATLAS · ATT&CK), latest AI incidents + on-chain wallets, priority triage / severity / TTP changelog, indicator types / trending tags / data breaches, and the actor watchlist + intel pulses — plus a semantic events stream on the right rail. The 24H / 7D / 30D switcher scopes every windowed tile.
 
 ![Threat Command — analyst dashboard](docs/screenshots/dashboard.png)
 
@@ -59,7 +62,7 @@ By [RinjaniAnalytics](https://rinjanianalytics.com) — paired with the [cti-pla
 ![Services — one-pane ops health](docs/screenshots/dashboard-services.png)
 
 ### Feeds — landscape rotation of ingested intel
-`/feeds` — the analyst-facing landscape: live counters per source (OTX pulses ingested today / week / total) plus the latest pulse stream — title, description, tags, ingestion timestamp — so you can scan what's new without opening individual IOCs first.
+`/feeds` — the analyst-facing landscape: a **strategic-verticals band** (AI incidents · on-chain wallets · Telco fraud schemes), the **Landscape-shift** top-mover tag band, a **latest-by-vertical** tabbed view, and the live pulse stream — title, description, tags, ingestion timestamp — so you can scan what's new without opening individual IOCs first.
 
 ![Feeds — landscape rotation of ingested intel](docs/screenshots/dashboard-feeds.png)
 

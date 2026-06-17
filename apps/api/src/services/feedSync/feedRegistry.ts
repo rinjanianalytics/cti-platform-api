@@ -20,7 +20,7 @@ import { syncCveOrgFeed } from './cveOrgSync';
 import {
     syncAbuseSSLFeed, syncThreatFoxFeed, syncURLhausFeed,
     syncMalwareBazaarFeed, syncOpenPhishFeed, syncMITREFeed, syncMISPGalaxyFeed,
-    syncEPSSFeed, syncOFACFeed, syncAIIncidentsFeed,
+    syncEPSSFeed, syncOFACFeed, syncAIIncidentsFeed, syncScamSnifferFeed,
 } from './additionalFeeds';
 import { syncHibpBreaches } from './hibpSync';
 import { FeedManifest as FeedManifestSchema } from '@rinjani/feed-engine';
@@ -55,6 +55,10 @@ const FEED_REGISTRY: Record<string, FeedHandler> = {
     // (incidentdatabase.ai). The live AI-threat-landscape signal; sinks to
     // the dedicated ai_incidents table.
     aiid: () => syncAIIncidentsFeed(),
+    // ScamSniffer community scam-address blacklist — active-fraud on-chain
+    // coverage. Dual-sinks to iocs (tag `scam`) + wallets (entityType `scam`),
+    // mirroring OFAC. Community intel, confidence 75 (vs OFAC's 100).
+    scamsniffer: () => syncScamSnifferFeed(),
     mitre: () => syncMITREFeed(),
     mispgalaxy: () => syncMISPGalaxyFeed(),
     // EPSS — FIRST.org's daily exploit-prediction score. Pairs with the

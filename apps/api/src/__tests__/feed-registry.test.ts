@@ -18,11 +18,12 @@ describe('Feed Registry', () => {
     // `ofac` joined as the free, authoritative on-chain attribution feed
     // (OFAC SDN sanctioned crypto addresses; dual-sinks iocs + wallets).
     // `aiid` joined as the AI-threat-landscape feed (AI Incident Database;
-    // sinks to ai_incidents).
+    // sinks to ai_incidents). `scamsniffer` joined as the community
+    // scam-address feed (dual-sinks iocs + wallets, like ofac).
     const EXPECTED_FEEDS = [
         'otx', 'cisa', 'cveorg', 'nvd', 'abusessl', 'threatfox',
-        'urlhaus', 'malwarebazaar', 'openphish', 'ofac', 'aiid', 'mitre', 'mispgalaxy',
-        'epss', 'hibp',
+        'urlhaus', 'malwarebazaar', 'openphish', 'ofac', 'aiid', 'scamsniffer',
+        'mitre', 'mispgalaxy', 'epss', 'hibp',
     ];
 
     describe('getRegisteredFeeds', () => {

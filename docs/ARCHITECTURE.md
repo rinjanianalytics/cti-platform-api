@@ -66,6 +66,16 @@ graph TB
     Prometheus --> Grafana
 ```
 
+## Threat-domain verticals (the differentiator)
+
+The platform unifies three threat domains that are usually siloed across separate tools, in **one graph + one agentic-analytics layer**:
+
+- **Telco-5G** — MITRE FiGHT techniques + a 5G entity model (`network_elements`, `signaling_interfaces`, `fraud_schemes`). Operator advisories arrive via the report-ingestion path (no free telco feed exists).
+- **AI** — MITRE ATLAS (graph-synced) + the **AI Incident Database** feed (`ai_incidents`, ~1.5k real-world incidents via GraphQL), giving both the static technique taxonomy and the live incident trend.
+- **Blockchain** — confidence-weighted wallet attribution (`wallets`) fed by **OFAC SDN sanctioned**, **ScamSniffer scam**, and **DefiLlama protocol** labels, plus a **free multi-source `onchain.lookup`** that fans out to our DB + Blockscout + DefiLlama + optional MistTrack and merges by precedence with full provenance. No paid Arkham/Chainalysis dependency.
+
+Each vertical is a per-domain entity table that participates in the shared Neo4j graph and is callable from the agentic hunt loop's read-only tool plane.
+
 ## Data Flow
 
 ```mermaid

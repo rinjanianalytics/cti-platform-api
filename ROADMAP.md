@@ -5,7 +5,14 @@
 > targets, not commitments. Phases get re-ordered when real-world usage
 > tells us what matters and what doesn't.
 
-Last reviewed: **2026-06-05**.
+Last reviewed: **2026-06-17**.
+
+### Recently shipped (2026-06)
+
+- **Three-domain verticals live with real data** — Telco-5G (MITRE FiGHT), AI (MITRE ATLAS + the **AI Incident Database** feed), and Blockchain (**OFAC sanctioned** + **ScamSniffer scam** + **DefiLlama protocol** attribution), unified in one graph and surfaced on the Command/Feeds dashboards.
+- **Free multi-source on-chain attribution** — replaced the paid Arkham lookup with a DB + Blockscout + DefiLlama + optional-MistTrack aggregator (full provenance, graceful degradation). Zero paid-API dependency.
+- **Declarative feed engine** + new free feeds (OFAC, ScamSniffer, DefiLlama, AI Incident DB on top of the abuse.ch / CISA / NVD / MITRE baseline) → 18 sources.
+- **Agentic-analytics layer** — bounded JSON-ReAct hunt loop over a read-only tool plane with HITL-gated writes.
 
 ## Status legend
 

@@ -39,7 +39,9 @@ import { db, sql } from '@rinjani/db';
 
 const router = new Hono();
 
-export type EventKind = 'kev' | 'cve' | 'actor' | 'pulse' | 'sync';
+export type EventKind = 'kev' | 'cve' | 'actor' | 'pulse' | 'sync'
+    // Strategic-vertical events — the AI / On-chain / Telco surfaces.
+    | 'ai-incident' | 'wallet' | 'telco';
 
 export interface PlatformEvent {
     /** Stable per-event id so the client can dedupe / key React rows. */
@@ -102,11 +104,35 @@ interface SyncRow {
     completed_at: Date | string;
 }
 
+interface AiIncidentRow {
+    incident_id: number;
+    title: string;
+    developers: string[] | null;
+    incident_date: Date | string | null;
+}
+
+interface WalletRow {
+    ref_id: string;
+    address: string;
+    chain: string;
+    entity_label: string | null;
+    risk_tags: string[] | null;
+    created_at: Date | string;
+}
+
+interface FraudSchemeRow {
+    ref_id: string;
+    name: string;
+    scheme_type: string;
+    gsma_fs_categories: string[] | null;
+    created_at: Date | string;
+}
+
 router.get('/events', async (c) => {
     const limitRaw = Number(c.req.query('limit') ?? 25);
     const limit = Math.min(Math.max(Math.floor(limitRaw) || 25, 1), 100);
 
-    const [kevRows, cveRows, actorRows, pulseRows, syncRows] = await Promise.all([
+    const [kevRows, cveRows, actorRows, pulseRows, syncRows, aiRows, walletRows, telcoRows] = await Promise.all([
         // 1. KEV adds — `is_exploited` flipped to true in the last 7d.
         //    Approximation: ORDER BY updated_at DESC for vulns where the
         //    flag is true. The flag flips during the daily kev-sync;
@@ -173,6 +199,41 @@ router.get('/events', async (c) => {
             ORDER BY completed_at DESC
             LIMIT 10
         `) as unknown as Promise<SyncRow[]>,
+
+        // 6. AI incidents — keyed on incident_date (the real-world event
+        //    date), NOT created_at, so a one-time bulk feed ingest doesn't
+        //    masquerade as "new". Surfaces genuinely-recent incidents.
+        db.execute(sql`
+            SELECT incident_id, title, developers, incident_date
+            FROM ai_incidents
+            WHERE incident_date > (now() - interval '30 days')::date
+            ORDER BY incident_date DESC
+            LIMIT 15
+        `) as unknown as Promise<AiIncidentRow[]>,
+
+        // 7. On-chain — newly SANCTIONED wallets only (the high-signal event).
+        //    created_at is preserved across the daily OFAC re-upsert, so this
+        //    fires only on genuinely-new SDN designations — not the bulk
+        //    scam/protocol labels that would flood the rail.
+        db.execute(sql`
+            SELECT ref_id, address, chain, entity_label, risk_tags, created_at
+            FROM wallets
+            WHERE entity_type = 'sanctioned'
+              AND created_at > now() - interval '7 days'
+            ORDER BY created_at DESC
+            LIMIT 15
+        `) as unknown as Promise<WalletRow[]>,
+
+        // 8. Telco — new fraud schemes added to the 5G taxonomy. Low volume
+        //    (a curated model, not a live feed) so usually empty; surfaces
+        //    when the telco entity model is extended.
+        db.execute(sql`
+            SELECT ref_id, name, scheme_type, gsma_fs_categories, created_at
+            FROM fraud_schemes
+            WHERE created_at > now() - interval '7 days'
+            ORDER BY created_at DESC
+            LIMIT 10
+        `) as unknown as Promise<FraudSchemeRow[]>,
     ]);
 
     // Map each source's rows to events, KEEP THEM GROUPED. We deliberately
@@ -196,6 +257,9 @@ router.get('/events', async (c) => {
         actorRows.map(mapActor),
         pulseRows.map(mapPulse),
         syncRows.map(mapSync),
+        aiRows.map(mapAiIncident),
+        walletRows.map(mapWallet),
+        telcoRows.map(mapTelco),
     ];
     const totalAcrossKinds = groups.reduce((n, g) => n + g.length, 0);
 
@@ -309,6 +373,45 @@ function mapSync(r: SyncRow): PlatformEvent {
                 failed > 0 ? `${failed.toLocaleString()} failed` : null,
             ].filter(Boolean).join(' · ') || 'see runbook',
         timestamp: iso(r.completed_at),
+    };
+}
+
+function mapAiIncident(r: AiIncidentRow): PlatformEvent {
+    const devs = Array.isArray(r.developers) ? r.developers.filter(Boolean) : [];
+    return {
+        id: `ai:${r.incident_id}`,
+        kind: 'ai-incident',
+        title: truncate(`AI incident: ${r.title}`, 80) ?? `AI incident #${r.incident_id}`,
+        meta: devs.slice(0, 2).join(' · ') || 'incidentdatabase.ai',
+        timestamp: r.incident_date ? iso(r.incident_date) : new Date().toISOString(),
+        href: '/ai-incidents',
+    };
+}
+
+function mapWallet(r: WalletRow): PlatformEvent {
+    const tags = Array.isArray(r.risk_tags) ? r.risk_tags.filter((t) => t && t !== 'sanctioned') : [];
+    return {
+        id: `wallet:${r.ref_id}`,
+        kind: 'wallet',
+        title: `Sanctioned wallet: ${r.entity_label || r.address}`,
+        meta: [
+            r.chain ? r.chain.toUpperCase() : null,
+            tags.slice(0, 2).join(' · ') || 'OFAC SDN',
+        ].filter(Boolean).join(' · '),
+        timestamp: iso(r.created_at),
+        href: '/onchain',
+    };
+}
+
+function mapTelco(r: FraudSchemeRow): PlatformEvent {
+    const cats = Array.isArray(r.gsma_fs_categories) ? r.gsma_fs_categories.filter(Boolean) : [];
+    return {
+        id: `telco:${r.ref_id}`,
+        kind: 'telco',
+        title: `Telco fraud scheme: ${r.name}`,
+        meta: [r.scheme_type, cats.slice(0, 2).join(' · ')].filter(Boolean).join(' · ') || '5G signaling fraud',
+        timestamp: iso(r.created_at),
+        href: '/telco',
     };
 }
 

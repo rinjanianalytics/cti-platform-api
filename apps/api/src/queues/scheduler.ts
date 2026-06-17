@@ -163,6 +163,19 @@ export const JOB_REGISTRY: ScheduledJobRegistration[] = [
         payload: { source: 'scamsniffer' },
     },
     {
+        // DefiLlama protocol labels — benign on-chain attribution. ~4k protocol
+        // addresses → defi-typed wallet labels so the free on-chain lookup
+        // resolves DB-first. One small JSON fetch; weekly (Mon 04:00 UTC) is
+        // ample — protocol identities don't churn fast. Idempotent.
+        key: 'defillamaSync',
+        jobId: 'scheduled-defillama-sync',
+        name: 'defillama-sync',
+        description: 'Sync DefiLlama protocol labels into on-chain wallet attribution',
+        defaultCron: '0 4 * * 1',
+        queue: feedSyncQueue,
+        payload: { source: 'defillama' },
+    },
+    {
         // AI Incident Database (incidentdatabase.ai). The live AI-threat
         // landscape signal — real-world AI harm/failure incidents. Paged from
         // the GraphQL API (~8 small requests for the ~1.5k corpus), so daily

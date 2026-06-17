@@ -80,6 +80,12 @@ export async function syncScamSnifferFeed(): Promise<SyncResult> {
     return normalise(await syncScamSniffer());
 }
 
+export async function syncDefiLlamaFeed(): Promise<SyncResult> {
+    // @ts-ignore — worker scripts outside rootDir, resolved at runtime
+    const { syncDefiLlama } = await import('../../../../worker/src/feeds/defillama');
+    return normalise(await syncDefiLlama());
+}
+
 export async function syncMITREFeed(): Promise<SyncResult> {
     try {
         // @ts-ignore

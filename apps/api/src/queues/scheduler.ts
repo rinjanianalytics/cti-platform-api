@@ -150,6 +150,19 @@ export const JOB_REGISTRY: ScheduledJobRegistration[] = [
         payload: { source: 'openphish' },
     },
     {
+        // ScamSniffer scam-address blacklist (community Web3 anti-scam intel).
+        // Active-fraud on-chain coverage alongside OFAC's sanctioned set. A
+        // small JSON fetch (~2.5k addresses) that ScamSniffer updates often,
+        // so daily at 03:30 UTC (30 min after OFAC). Idempotent dual-sink.
+        key: 'scamsnifferSync',
+        jobId: 'scheduled-scamsniffer-sync',
+        name: 'scamsniffer-sync',
+        description: 'Sync ScamSniffer community scam-address blacklist',
+        defaultCron: '30 3 * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'scamsniffer' },
+    },
+    {
         // AI Incident Database (incidentdatabase.ai). The live AI-threat
         // landscape signal — real-world AI harm/failure incidents. Paged from
         // the GraphQL API (~8 small requests for the ~1.5k corpus), so daily

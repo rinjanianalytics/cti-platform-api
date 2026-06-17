@@ -74,6 +74,12 @@ export async function syncAIIncidentsFeed(): Promise<SyncResult> {
     return normalise(await syncAIIncidents());
 }
 
+export async function syncScamSnifferFeed(): Promise<SyncResult> {
+    // @ts-ignore — worker scripts outside rootDir, resolved at runtime
+    const { syncScamSniffer } = await import('../../../../worker/src/feeds/scamsniffer');
+    return normalise(await syncScamSniffer());
+}
+
 export async function syncMITREFeed(): Promise<SyncResult> {
     try {
         // @ts-ignore

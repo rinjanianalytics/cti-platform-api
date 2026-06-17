@@ -20,10 +20,12 @@ describe('Feed Registry', () => {
     // `aiid` joined as the AI-threat-landscape feed (AI Incident Database;
     // sinks to ai_incidents). `scamsniffer` joined as the community
     // scam-address feed (dual-sinks iocs + wallets, like ofac).
+    // `defillama` joined as benign on-chain protocol-label attribution
+    // (wallets-only sink; powers the free lookup's DB-first path).
     const EXPECTED_FEEDS = [
         'otx', 'cisa', 'cveorg', 'nvd', 'abusessl', 'threatfox',
         'urlhaus', 'malwarebazaar', 'openphish', 'ofac', 'aiid', 'scamsniffer',
-        'mitre', 'mispgalaxy', 'epss', 'hibp',
+        'defillama', 'mitre', 'mispgalaxy', 'epss', 'hibp',
     ];
 
     describe('getRegisteredFeeds', () => {

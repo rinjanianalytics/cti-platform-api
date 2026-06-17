@@ -20,7 +20,7 @@ import { syncCveOrgFeed } from './cveOrgSync';
 import {
     syncAbuseSSLFeed, syncThreatFoxFeed, syncURLhausFeed,
     syncMalwareBazaarFeed, syncOpenPhishFeed, syncMITREFeed, syncMISPGalaxyFeed,
-    syncEPSSFeed, syncOFACFeed, syncAIIncidentsFeed, syncScamSnifferFeed,
+    syncEPSSFeed, syncOFACFeed, syncAIIncidentsFeed, syncScamSnifferFeed, syncDefiLlamaFeed,
 } from './additionalFeeds';
 import { syncHibpBreaches } from './hibpSync';
 import { FeedManifest as FeedManifestSchema } from '@rinjani/feed-engine';
@@ -59,6 +59,9 @@ const FEED_REGISTRY: Record<string, FeedHandler> = {
     // coverage. Dual-sinks to iocs (tag `scam`) + wallets (entityType `scam`),
     // mirroring OFAC. Community intel, confidence 75 (vs OFAC's 100).
     scamsniffer: () => syncScamSnifferFeed(),
+    // DefiLlama protocol labels — benign on-chain attribution (defi-typed
+    // wallet labels) so the free lookup resolves protocol addresses DB-first.
+    defillama: () => syncDefiLlamaFeed(),
     mitre: () => syncMITREFeed(),
     mispgalaxy: () => syncMISPGalaxyFeed(),
     // EPSS — FIRST.org's daily exploit-prediction score. Pairs with the

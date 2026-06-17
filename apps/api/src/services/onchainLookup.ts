@@ -6,7 +6,8 @@
  *   1. Our own wallets DB   — OFAC sanctioned / ScamSniffer scam / analyst /
  *                             feed-ingested labels (instant, authoritative).
  *   2. Blockscout           — open-source explorer; contract name, is-contract,
- *                             token info, public tags (REST v2, no key).
+ *                             token info, public tags (REST v2; optional
+ *                             BLOCKSCOUT_API_KEY just raises the rate limit).
  *   3. DefiLlama            — 7.6k protocols → name + category (free REST).
  *   4. MistTrack (SlowMist) — OPTIONAL BYO-key: entity label + AML risk score.
  *                             Activates only when MISTTRACK_API_KEY is set;
@@ -101,7 +102,11 @@ interface BlockscoutAddr {
 async function fromBlockscout(chain: string, address: string): Promise<Hit | null> {
     if (!isEvm(address)) return null;
     const base = process.env.BLOCKSCOUT_BASE || BLOCKSCOUT_BASE[chain] || BLOCKSCOUT_BASE.ethereum;
-    const res = await fetch(`${base}/api/v2/addresses/${address}`, {
+    // BLOCKSCOUT_API_KEY is OPTIONAL — it only raises the rate limit. Passed as
+    // the `?apikey=` query param (Blockscout convention); keyless still works.
+    const apiKey = process.env.BLOCKSCOUT_API_KEY;
+    const url = `${base}/api/v2/addresses/${address}${apiKey ? `?apikey=${encodeURIComponent(apiKey)}` : ''}`;
+    const res = await fetch(url, {
         headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(10000),
     });

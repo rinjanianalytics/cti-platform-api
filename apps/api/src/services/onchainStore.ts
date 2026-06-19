@@ -64,3 +64,33 @@ export async function deleteWallet(id: string): Promise<boolean> {
     const out = await db.delete(wallets).where(eq(wallets.id, id)).returning({ id: wallets.id });
     return out.length > 0;
 }
+
+export interface WalletStats {
+    total: number;
+    /** Counts by entity_type (sanctioned, scam, defi, …). */
+    byType: Record<string, number>;
+    /** Counts by attribution_source (ofac, scamsniffer, defillama, …). */
+    bySource: Record<string, number>;
+}
+
+/**
+ * Category counts via GROUP BY — the REST list caps at 500 rows, so the
+ * dashboard cannot derive accurate per-category totals (scam alone is ~2.5k).
+ * These aggregates come straight from Postgres and are cheap.
+ */
+export async function walletStats(): Promise<WalletStats> {
+    const [typeRows, sourceRows, totalRow] = await Promise.all([
+        db.select({ k: wallets.entityType, n: sql<number>`count(*)::int` })
+            .from(wallets).groupBy(wallets.entityType),
+        db.select({ k: wallets.attributionSource, n: sql<number>`count(*)::int` })
+            .from(wallets).groupBy(wallets.attributionSource),
+        db.select({ n: sql<number>`count(*)::int` }).from(wallets),
+    ]);
+    const toMap = (rows: Array<{ k: string | null; n: number }>) =>
+        Object.fromEntries(rows.filter((r) => r.k).map((r) => [r.k as string, Number(r.n)]));
+    return {
+        total: Number(totalRow[0]?.n ?? 0),
+        byType: toMap(typeRows),
+        bySource: toMap(sourceRows),
+    };
+}

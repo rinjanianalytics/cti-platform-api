@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { requireAuth, requireRole } from '../../middleware/auth';
 import { NotFoundError, ValidationError } from '../../lib/errors';
 import { createLogger } from '../../lib/logger';
-import { upsertWallet, listWallets, getWallet, deleteWallet } from '../../services/onchainStore';
+import { upsertWallet, listWallets, getWallet, deleteWallet, walletStats } from '../../services/onchainStore';
 
 const log = createLogger('OnChain');
 const router = new Hono();
@@ -72,6 +72,14 @@ router.get('/onchain/wallets', async (c) => {
         limit: c.req.query('limit') ? Number(c.req.query('limit')) : undefined,
     });
     return c.json({ success: true, data: rows, count: rows.length });
+});
+
+// Category aggregates (total + by entity_type + by attribution_source). The
+// list endpoint caps at 500 rows so the dashboard can't count scam (~2.5k) or
+// defi accurately — this GROUP BY does. Registered before `:id` so "stats" is
+// not captured as a wallet id.
+router.get('/onchain/wallets/stats', async (c) => {
+    return c.json({ success: true, data: await walletStats() });
 });
 
 router.get('/onchain/wallets/:id', async (c) => {

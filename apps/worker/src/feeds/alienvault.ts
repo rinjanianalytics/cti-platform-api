@@ -209,14 +209,21 @@ async function syncAlienVault(): Promise<SyncResult> {
     console.log('[AlienVault] Starting sync...');
     console.log(`[AlienVault] API URL: ${ALIENVAULT_BASE_URL}`);
 
-    // Delta sync: only fetch pulses modified since last successful sync
+    // Self-healing delta. We fetch pulses modified within at least a lookback
+    // window (default 7d, env-tunable via ALIENVAULT_LOOKBACK_DAYS), NOT merely
+    // since the last run. A tight per-run delta permanently SKIPS any pulse
+    // modified during a scheduling gap or while the sync_logs cursor was stale —
+    // exactly what froze this feed at 533 pulses (newest 2026-06-12) while OTX
+    // had thousands more available. The upsert is idempotent on otx_id, so
+    // re-scanning the overlapping window each run is cheap (mostly no-op updates).
+    // If lastSync is OLDER than the floor we use it (wider catch-up); otherwise
+    // we use the floor so the feed always re-checks the recent window.
     const lastSync = await getLastSyncTime('alienvault_pulses');
-    const modifiedSince = lastSync ? toISOParam(lastSync) : null;
-    if (modifiedSince) {
-        console.log(`[AlienVault] Delta sync — fetching pulses modified since ${modifiedSince}`);
-    } else {
-        console.log('[AlienVault] First run — full sync');
-    }
+    const lookbackDays = Number(process.env.ALIENVAULT_LOOKBACK_DAYS) || 7;
+    const floor = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+    const since = lastSync && lastSync < floor ? lastSync : floor;
+    const modifiedSince = toISOParam(since);
+    console.log(`[AlienVault] Delta sync — pulses modified since ${modifiedSince} (lookback floor ${lookbackDays}d, lastSync ${lastSync?.toISOString() ?? 'never'})`);
 
     const result: SyncResult = { processed: 0, failed: 0, errors: [] };
 

@@ -21,6 +21,7 @@ import {
     syncAbuseSSLFeed, syncThreatFoxFeed, syncURLhausFeed,
     syncMalwareBazaarFeed, syncOpenPhishFeed, syncMITREFeed, syncMISPGalaxyFeed,
     syncEPSSFeed, syncOFACFeed, syncAIIncidentsFeed, syncScamSnifferFeed, syncDefiLlamaFeed,
+    syncTelcoNewsFeed,
 } from './additionalFeeds';
 import { syncHibpBreaches } from './hibpSync';
 import { FeedManifest as FeedManifestSchema } from '@rinjani/feed-engine';
@@ -73,6 +74,9 @@ const FEED_REGISTRY: Record<string, FeedHandler> = {
     // `/breachedaccount` endpoint requires a paid key and is intentionally
     // out of scope.
     hibp: () => syncHibpBreaches(),
+    // Tier-2 telco intel — telecom-keyword-filtered security news (RSS) → the
+    // telco_advisories table, unioned into /v1/telco/intel.
+    telconews: () => syncTelcoNewsFeed(),
 };
 
 /** Get the sync handler for a specific feed source. */

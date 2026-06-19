@@ -86,6 +86,12 @@ export async function syncDefiLlamaFeed(): Promise<SyncResult> {
     return normalise(await syncDefiLlama());
 }
 
+export async function syncTelcoNewsFeed(): Promise<SyncResult> {
+    // @ts-ignore — worker scripts outside rootDir, resolved at runtime
+    const { syncTelcoNews } = await import('../../../../worker/src/feeds/telco-news');
+    return normalise(await syncTelcoNews());
+}
+
 export async function syncMITREFeed(): Promise<SyncResult> {
     try {
         // @ts-ignore

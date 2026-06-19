@@ -111,6 +111,27 @@ export const fraudSchemes = pgTable('fraud_schemes', {
     schemeTypeIdx: index('fraud_schemes_scheme_type_idx').on(table.schemeType),
 }));
 
+// Tier-2 telco intel: telecom-keyword-filtered security NEWS/advisories ingested
+// from free RSS sources (no telecom-specific feed exists). Distinct from CVEs/
+// pulses — this is reporting, not structured IOCs. `telcoIntel()` unions it.
+export const telcoAdvisories = pgTable('telco_advisories', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // RSS source key, e.g. 'thehackernews', 'bleepingcomputer'.
+    source: varchar('source', { length: 64 }).notNull(),
+    // Natural key for idempotent upsert — the article URL.
+    externalId: varchar('external_id', { length: 1024 }).notNull().unique(),
+    title: text('title').notNull(),
+    url: text('url').notNull(),
+    summary: text('summary'),
+    // Which telecom keywords matched (so the UI can show why it surfaced).
+    tags: jsonb('tags').$type<string[]>().notNull().default([]),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+    publishedIdx: index('telco_advisories_published_idx').on(table.publishedAt),
+}));
+
 // Type exports
 export type NetworkElement = typeof networkElements.$inferSelect;
 export type NewNetworkElement = typeof networkElements.$inferInsert;
@@ -118,3 +139,5 @@ export type SignalingInterface = typeof signalingInterfaces.$inferSelect;
 export type NewSignalingInterface = typeof signalingInterfaces.$inferInsert;
 export type FraudScheme = typeof fraudSchemes.$inferSelect;
 export type NewFraudScheme = typeof fraudSchemes.$inferInsert;
+export type TelcoAdvisory = typeof telcoAdvisories.$inferSelect;
+export type NewTelcoAdvisory = typeof telcoAdvisories.$inferInsert;

@@ -333,43 +333,48 @@ router.get('/tactics', async (c) => {
  * Get health status for all feeds
  */
 router.get('/monitoring/feeds', async (c) => {
-    // Use DISTINCT ON to get only the latest sync per entity_type directly in SQL
-    const latestSyncs = await db.execute(sql`
-        SELECT DISTINCT ON (entity_type)
-            entity_type,
+    // Latest run per feed from `feed_sync_runs` — the authoritative per-feed log
+    // the feed-sync worker writes for EVERY scheduled feed (keyed by feed_id =
+    // source). The legacy `sync_logs` table only covered the original feeds, so
+    // scheduler-driven feeds (aiid, ofac, scamsniffer, defillama, …) were
+    // invisible here even though they run. `all` is the fan-out parent — skip it.
+    const latestRuns = await db.execute(sql`
+        SELECT DISTINCT ON (feed_id)
+            feed_id,
             status,
-            items_processed,
-            items_failed,
-            error_message,
+            items_ingested,
+            errors,
+            error_details,
             started_at,
             completed_at,
-            EXTRACT(EPOCH FROM (completed_at - started_at)) as duration
-        FROM sync_logs
-        ORDER BY entity_type, created_at DESC
+            (duration_ms / 1000.0) as duration
+        FROM feed_sync_runs
+        WHERE feed_id <> 'all'
+        ORDER BY feed_id, started_at DESC
     `) as unknown as RawQueryResult;
 
-    const feeds = (Array.isArray(latestSyncs) ? latestSyncs : latestSyncs.rows || []).map((sync: Record<string, unknown>) => {
-        const itemsProcessed = Number(sync.items_processed || 0);
-        const itemsFailed = Number(sync.items_failed || 0);
-        const successRate = itemsProcessed + itemsFailed > 0
-            ? (itemsProcessed / (itemsProcessed + itemsFailed)) * 100
-            : 0;
+    const feeds = (Array.isArray(latestRuns) ? latestRuns : latestRuns.rows || []).map((run: Record<string, unknown>) => {
+        const itemsProcessed = Number(run.items_ingested || 0);
+        const itemsFailed = Number(run.errors || 0);
+        const status = String(run.status || 'unknown');
+        const total = itemsProcessed + itemsFailed;
+        const successRate = total > 0 ? (itemsProcessed / total) * 100 : status === 'completed' ? 100 : 0;
 
         let health = 'healthy';
-        if (sync.status === 'error') health = 'critical';
-        else if (sync.status === 'partial') health = 'warning';
-        else if (successRate < 90) health = 'warning';
+        if (status === 'failed') health = 'critical';
+        else if (status === 'running') health = 'healthy';
+        else if (itemsFailed > 0 && successRate < 90) health = 'warning';
 
         return {
-            feed: sync.entity_type,
+            feed: run.feed_id,
             health,
-            status: sync.status,
-            lastSync: sync.completed_at,
+            status,
+            lastSync: run.completed_at ?? run.started_at,
             itemsProcessed,
             itemsFailed,
             successRate: Math.round(successRate),
-            duration: Math.round(Number(sync.duration) || 0),
-            errorMessage: sync.error_message,
+            duration: Math.round(Number(run.duration) || 0),
+            errorMessage: run.error_details,
         };
     });
 

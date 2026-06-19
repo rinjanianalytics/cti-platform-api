@@ -18,7 +18,9 @@ router.use('*', requireAuth);
 
 router.get('/ai-incidents/stats', async (c) => {
     const months = Number(c.req.query('months')) || 24;
-    const stats = await aiIncidentStats(months);
+    const g = c.req.query('granularity');
+    const granularity = g === 'day' || g === 'week' ? g : 'month';
+    const stats = await aiIncidentStats(months, granularity);
     return c.json({ success: true, data: stats });
 });
 
@@ -27,6 +29,7 @@ router.get('/ai-incidents', async (c) => {
         q: c.req.query('q') || undefined,
         since: c.req.query('since') || undefined,
         limit: Number(c.req.query('limit')) || undefined,
+        sort: c.req.query('sort') === 'date' ? 'date' : 'recency',
     });
     return c.json({ success: true, data: rows, count: rows.length });
 });

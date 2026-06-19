@@ -25,7 +25,7 @@ describe('Feed Registry', () => {
     const EXPECTED_FEEDS = [
         'otx', 'cisa', 'cveorg', 'nvd', 'abusessl', 'threatfox',
         'urlhaus', 'malwarebazaar', 'openphish', 'ofac', 'aiid', 'scamsniffer',
-        'defillama', 'mitre', 'mispgalaxy', 'epss', 'hibp',
+        'defillama', 'mitre', 'mispgalaxy', 'epss', 'hibp', 'telconews',
     ];
 
     describe('getRegisteredFeeds', () => {

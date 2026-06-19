@@ -163,7 +163,7 @@ export async function deleteFraudScheme(id: string): Promise<boolean> {
 // =============================================================================
 
 export interface TelcoIntelItem {
-    kind: 'pulse' | 'cve';
+    kind: 'pulse' | 'cve' | 'advisory';
     id: string;
     title: string;
     ref: string;
@@ -211,7 +211,30 @@ export async function telcoIntel(limit = 80): Promise<TelcoIntelItem[]> {
         LIMIT ${cap}
     `) as unknown as Array<{ cve_id: string; severity: string | null; vendor_project: string | null; product: string | null; published_date: string | null; created_at: string | null }>;
 
+    // Tier-2: telecom-filtered security news (telco_advisories). try/catch so a
+    // not-yet-migrated table can't 500 the whole endpoint.
+    let advisoryRows: Array<{ external_id: string; title: string; url: string; tags: string[] | null; published_at: string | null; created_at: string | null }> = [];
+    try {
+        advisoryRows = await db.execute(sql`
+            SELECT external_id, title, url, tags, published_at, created_at
+            FROM telco_advisories
+            ORDER BY created_at DESC
+            LIMIT ${cap}
+        `) as unknown as typeof advisoryRows;
+    } catch { /* table absent until migration 0068 applies */ }
+
     const items: TelcoIntelItem[] = [
+        ...advisoryRows.map((a): TelcoIntelItem => ({
+            kind: 'advisory',
+            id: a.external_id,
+            title: a.title,
+            ref: a.url,
+            severity: null,
+            tags: a.tags ?? [],
+            date: a.published_at,
+            added: a.created_at,
+            source: 'news',
+        })),
         ...pulseRows.map((p): TelcoIntelItem => ({
             kind: 'pulse',
             id: p.otx_id,

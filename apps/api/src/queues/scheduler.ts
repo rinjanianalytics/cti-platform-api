@@ -249,6 +249,19 @@ export const JOB_REGISTRY: ScheduledJobRegistration[] = [
         payload: { source: 'hibp' },
     },
 
+    // Tier-2 telco intel — telecom-keyword-filtered security news (RSS) into
+    // telco_advisories, unioned into /v1/telco/intel. Twice daily (08:00/20:00)
+    // since news churns faster than the daily structured feeds but isn't urgent.
+    {
+        key: 'telcoNewsSync',
+        jobId: 'scheduled-telco-news-sync',
+        name: 'telco-news-sync',
+        description: 'Sync telecom-filtered security news (The Hacker News, BleepingComputer)',
+        defaultCron: '0 8,20 * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'telconews' },
+    },
+
     // --- Graph sync ----------------------------------------------------
     {
         key: 'neo4jFullSync',

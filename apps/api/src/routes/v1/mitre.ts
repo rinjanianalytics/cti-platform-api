@@ -201,6 +201,13 @@ router.get('/malware', async (c) => {
     });
 });
 
+router.get('/malware/:id', async (c) => {
+    const { id } = c.req.param();
+    const items = await db.execute(sql`SELECT * FROM malware WHERE id = ${id}`) as unknown as Record<string, unknown>[];
+    if (!items[0]) throw new NotFoundError('Malware', id);
+    return c.json({ success: true, data: items[0] });
+});
+
 // ============================================================================
 // MITRE ATT&CK - Tools
 // ============================================================================
@@ -224,6 +231,13 @@ router.get('/tools', async (c) => {
             pagination: paginate(page, pageSize, total),
         },
     });
+});
+
+router.get('/tools/:id', async (c) => {
+    const { id } = c.req.param();
+    const items = await db.execute(sql`SELECT * FROM tools WHERE id = ${id}`) as unknown as Record<string, unknown>[];
+    if (!items[0]) throw new NotFoundError('Tool', id);
+    return c.json({ success: true, data: items[0] });
 });
 
 // ============================================================================

@@ -11,7 +11,8 @@
 
 import { Hono } from 'hono';
 import { requireAuth } from '../../middleware/auth';
-import { listAiIncidents, aiIncidentStats } from '../../services/aiIncidentStore';
+import { NotFoundError } from '../../lib/errors';
+import { listAiIncidents, aiIncidentStats, getAiIncident } from '../../services/aiIncidentStore';
 
 const router = new Hono();
 router.use('*', requireAuth);
@@ -22,6 +23,16 @@ router.get('/ai-incidents/stats', async (c) => {
     const granularity = g === 'day' || g === 'week' ? g : 'month';
     const stats = await aiIncidentStats(months, granularity);
     return c.json({ success: true, data: stats });
+});
+
+// Single incident by incident_id — registered before the bare list route is
+// irrelevant (distinct depth), but kept after /stats so "stats" isn't an :id.
+router.get('/ai-incidents/:id', async (c) => {
+    const id = Number(c.req.param('id'));
+    if (!Number.isInteger(id)) throw new NotFoundError('AiIncident', c.req.param('id'));
+    const row = await getAiIncident(id);
+    if (!row) throw new NotFoundError('AiIncident', String(id));
+    return c.json({ success: true, data: row });
 });
 
 router.get('/ai-incidents', async (c) => {

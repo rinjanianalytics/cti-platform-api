@@ -21,6 +21,7 @@ import {
     upsertNetworkElement, listNetworkElements, getNetworkElement, deleteNetworkElement,
     upsertSignalingInterface, listSignalingInterfaces, getSignalingInterface, deleteSignalingInterface,
     upsertFraudScheme, listFraudSchemes, getFraudScheme, deleteFraudScheme,
+    telcoIntel,
 } from '../../services/telcoStore';
 
 const log = createLogger('Telco');
@@ -28,6 +29,14 @@ const router = new Hono();
 const WRITE_ROLES = ['admin', 'analyst', 'developer'] as const;
 
 router.use('*', requireAuth);
+
+// Tier-1 telco threat intel — telecom-tagged OTX pulses + telecom-vendor CVEs,
+// filtered from data we already ingest (no new feed). Newest-ingested first.
+router.get('/telco/intel', async (c) => {
+    const limit = Number(c.req.query('limit')) || 80;
+    const items = await telcoIntel(limit);
+    return c.json({ success: true, data: items, count: items.length });
+});
 
 // Shared field fragments ------------------------------------------------------
 const refId = z.string().min(1).max(255);

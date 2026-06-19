@@ -154,3 +154,86 @@ export async function deleteFraudScheme(id: string): Promise<boolean> {
     const out = await db.delete(fraudSchemes).where(eq(fraudSchemes.id, id)).returning({ id: fraudSchemes.id });
     return out.length > 0;
 }
+
+// =============================================================================
+// Telco threat intel (Tier-1) — NO new feed: filter the data we already ingest.
+// OTX pulses tagged/described with telecom terms + CVEs against telecom-pure
+// vendors (or whose product mentions a mobile-core term). Gives the Telco
+// vertical live signal beyond the static FiGHT seed, for free.
+// =============================================================================
+
+export interface TelcoIntelItem {
+    kind: 'pulse' | 'cve';
+    id: string;
+    title: string;
+    ref: string;
+    severity: string | null;
+    tags: string[];
+    /** Event/publish date (pulse modified · CVE published). */
+    date: string | null;
+    /** When WE ingested it (the "Added" signal). */
+    added: string | null;
+    source: string;
+}
+
+// Telecom context terms (case-insensitive regex). Kept specific to avoid
+// false positives — generic words like "ran"/"sip"/"ims" are intentionally out.
+const TELCO_KW =
+    'telecom|telco|5g|ss7|diameter|\\mgtp\\M|signal+ing|baseband|enodeb|gnodeb|gnb|volte|roaming|simjacker|sim.?swap|salt typhoon|o-?ran|open5gs|srsran|packet core|mobile network|subscriber';
+// Telecom-pure equipment/core vendors (broad vendors like Cisco are caught only
+// via product terms below, to keep enterprise CVE noise out).
+const TELCO_VENDOR =
+    'ericsson|nokia|mavenir|\\mzte\\M|casa systems|athonet|affirmed|ribbon communic|metaswitch|oracle communications|open5gs|srsran|samsung.*baseband';
+
+export async function telcoIntel(limit = 80): Promise<TelcoIntelItem[]> {
+    const cap = Math.min(limit, 200);
+
+    const pulseRows = await db.execute(sql`
+        SELECT otx_id, name, tlp, tags, otx_modified, created_at
+        FROM pulses
+        WHERE name ~* ${TELCO_KW}
+           OR COALESCE(description, '') ~* ${TELCO_KW}
+           OR COALESCE(adversary, '') ~* ${TELCO_KW}
+           OR EXISTS (SELECT 1 FROM unnest(tags) tg WHERE tg ~* ${TELCO_KW})
+        ORDER BY created_at DESC
+        LIMIT ${cap}
+    `) as unknown as Array<{ otx_id: string; name: string; tlp: string | null; tags: string[] | null; otx_modified: string | null; created_at: string | null }>;
+
+    const cveRows = await db.execute(sql`
+        SELECT cve_id, severity, vendor_project, product, published_date, created_at
+        FROM vulnerabilities
+        WHERE vendor_project ~* ${TELCO_VENDOR}
+           OR COALESCE(product, '') ~* ${TELCO_KW}
+        ORDER BY created_at DESC
+        LIMIT ${cap}
+    `) as unknown as Array<{ cve_id: string; severity: string | null; vendor_project: string | null; product: string | null; published_date: string | null; created_at: string | null }>;
+
+    const items: TelcoIntelItem[] = [
+        ...pulseRows.map((p): TelcoIntelItem => ({
+            kind: 'pulse',
+            id: p.otx_id,
+            title: p.name,
+            ref: `https://otx.alienvault.com/pulse/${p.otx_id}`,
+            severity: (p.tlp ?? '').toLowerCase() === 'red' ? 'critical' : (p.tlp ?? '').toLowerCase() === 'amber' ? 'high' : null,
+            tags: p.tags ?? [],
+            date: p.otx_modified,
+            added: p.created_at,
+            source: 'otx',
+        })),
+        ...cveRows.map((v): TelcoIntelItem => ({
+            kind: 'cve',
+            id: v.cve_id,
+            title: [v.vendor_project, v.product].filter(Boolean).join(' · ') || v.cve_id,
+            ref: `https://nvd.nist.gov/vuln/detail/${v.cve_id}`,
+            severity: v.severity,
+            tags: [v.vendor_project, v.product].filter((x): x is string => !!x),
+            date: v.published_date,
+            added: v.created_at,
+            source: 'cve',
+        })),
+    ];
+
+    // Unified recency order by ingestion (the "Added" signal), newest first.
+    items.sort((a, b) => (b.added ?? '').localeCompare(a.added ?? ''));
+    return items.slice(0, cap);
+}

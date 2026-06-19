@@ -21,19 +21,26 @@ const log = createLogger('TelcoNews');
 const UA = process.env.TELCO_NEWS_UA
     ?? 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
-// Free, reliable security-news RSS (override via TELCO_NEWS_FEEDS, comma-sep
-// "key|url" pairs). The Hacker News + BleepingComputer both serve RSS 2.0.
-const DEFAULT_FEEDS: Array<{ key: string; url: string }> = [
-    { key: 'thehackernews', url: 'https://feeds.feedburner.com/TheHackersNews' },
-    { key: 'bleepingcomputer', url: 'https://www.bleepingcomputer.com/feed/' },
+// Sources. `prefiltered` = the source URL already constrains to telecom (a
+// Google News query), so we skip the keyword filter and trust it; general
+// feeds get the keyword filter applied. Google News is Google-hosted, so it
+// works from datacenter IPs where Cloudflare/Akamai feeds (BleepingComputer,
+// CISA) 403. Override via TELCO_NEWS_FEEDS (comma-sep "key|url" pairs).
+const GN_QUERY = encodeURIComponent(
+    '(telecom OR 5G OR 6G OR SS7 OR "mobile operator" OR "mobile network" OR "mobile carrier" OR "telecom operator") '
+    + '(security OR breach OR hack OR cyberattack OR vulnerability OR espionage OR fraud OR malware)',
+);
+const DEFAULT_FEEDS: Array<{ key: string; url: string; prefiltered: boolean }> = [
+    { key: 'googlenews', url: `https://news.google.com/rss/search?q=${GN_QUERY}&hl=en-US&gl=US&ceid=US:en`, prefiltered: true },
+    { key: 'thehackernews', url: 'https://feeds.feedburner.com/TheHackersNews', prefiltered: false },
 ];
 
-function feeds(): Array<{ key: string; url: string }> {
+function feeds(): Array<{ key: string; url: string; prefiltered: boolean }> {
     const env = process.env.TELCO_NEWS_FEEDS;
     if (!env) return DEFAULT_FEEDS;
     return env.split(',').map((pair) => {
         const [key, url] = pair.split('|');
-        return { key: (key ?? '').trim(), url: (url ?? '').trim() };
+        return { key: (key ?? '').trim(), url: (url ?? '').trim(), prefiltered: false };
     }).filter((f) => f.key && f.url);
 }
 
@@ -41,7 +48,7 @@ function feeds(): Array<{ key: string; url: string }> {
 // general security headline only surfaces when it's genuinely telecom.
 const TELCO_RE = new RegExp(
     [
-        'telecom', 'telco', 'telecommunications', '\\b5g\\b', '\\bss7\\b', 'diameter protocol',
+        'telecom', 'telco', 'telecommunications', '\\b5g\\b', '\\b6g\\b', '\\bss7\\b', 'diameter protocol',
         '\\bgtp\\b', 'signal+ing', 'baseband', 'gnodeb', 'enodeb', '\\bvolte\\b', 'salt typhoon',
         'sim.?swap', 'simjacker', 'mobile (?:carrier|operator|network)', 'cellular network',
         'lawful intercept', 'o-?ran\\b', 'open5gs', 'srsran', 'roaming fraud', 'packet core',
@@ -101,7 +108,9 @@ export async function syncTelcoNews(): Promise<TelcoNewsResult> {
             const desc = stripHtml(typeof it.description === 'string' ? it.description : '');
             const cats = Array.isArray(it.category) ? it.category.join(' ') : String(it.category ?? '');
             const haystack = `${title} ${desc} ${cats}`;
-            if (!TELCO_RE.test(haystack)) continue;
+            // Trust the Google-News telecom query; apply the keyword filter only
+            // to general sources.
+            if (!feed.prefiltered && !TELCO_RE.test(haystack)) continue;
 
             const published = it.pubDate ? new Date(it.pubDate) : null;
             rows.push({

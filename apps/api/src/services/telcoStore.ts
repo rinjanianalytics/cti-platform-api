@@ -178,8 +178,11 @@ export interface TelcoIntelItem {
 
 // Telecom context terms (case-insensitive regex). Kept specific to avoid
 // false positives — generic words like "ran"/"sip"/"ims" are intentionally out.
+// `\m..\M` are Postgres word boundaries — without them "5g" matches inside
+// "EG105G" and "gnb" matches mid-word. `subscriber` was removed: it matched
+// email-marketing plugins ("email subscribers"), not telecom.
 const TELCO_KW =
-    'telecom|telco|5g|ss7|diameter|\\mgtp\\M|signal+ing|baseband|enodeb|gnodeb|gnb|volte|roaming|simjacker|sim.?swap|salt typhoon|o-?ran|open5gs|srsran|packet core|mobile network|subscriber';
+    'telecom|telco|\\m5g\\M|ss7|diameter|\\mgtp\\M|signal+ing|baseband|enodeb|gnodeb|\\mgnb\\M|volte|\\mims core\\M|roaming|simjacker|sim.?swap|salt typhoon|o-?ran|open5gs|srsran|packet core|mobile network';
 // Telecom-pure equipment/core vendors (broad vendors like Cisco are caught only
 // via product terms below, to keep enterprise CVE noise out).
 const TELCO_VENDOR =

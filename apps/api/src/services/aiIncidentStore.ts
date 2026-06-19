@@ -7,9 +7,15 @@
  * the AI-vertical analogue of the IOC landscape-shift band.
  */
 
-import { db, desc, ilike, and, gte, sql } from '@rinjani/db';
+import { db, desc, ilike, and, gte, eq, sql } from '@rinjani/db';
 import { aiIncidents } from '@rinjani/db/schema';
 import type { AiIncident } from '@rinjani/db/schema';
+
+/** Single incident by its natural key (incident_id). */
+export async function getAiIncident(incidentId: number): Promise<AiIncident | null> {
+    const rows = await db.select().from(aiIncidents).where(eq(aiIncidents.incidentId, incidentId)).limit(1);
+    return rows[0] ?? null;
+}
 
 export async function listAiIncidents(filters: {
     q?: string;

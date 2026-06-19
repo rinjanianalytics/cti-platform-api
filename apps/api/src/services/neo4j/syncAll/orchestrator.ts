@@ -79,7 +79,10 @@ export async function syncAllToNeo4j(
     const genericRelCount = await syncGenericRelationships();
     onProgress?.(75);
 
-    const { pulses: pulseCount, iocs: iocCount, links: linkCount } = await syncPulsesAndIOCs(500, 50);
+    // 2000 cap (was 500) so the full sync covers the entire pulse corpus with
+    // headroom — paired with newest-first ordering in syncPulsesAndIOCs, this
+    // makes the graph a true projection of Postgres rather than the first 500 rows.
+    const { pulses: pulseCount, iocs: iocCount, links: linkCount } = await syncPulsesAndIOCs(2000, 50);
     onProgress?.(80);
 
     const allIocCount = await syncAllIOCs(5000);

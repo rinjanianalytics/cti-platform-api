@@ -2,7 +2,7 @@
  * Neo4j Sync — Pulses + IOCs + Attribution edges
  */
 
-import { db, sql } from '@rinjani/db';
+import { db, sql, desc } from '@rinjani/db';
 import { pulses, iocs } from '@rinjani/db/schema';
 import { getNeo4jDriver } from '../driver';
 import { createLogger } from '../../../lib/logger';
@@ -16,6 +16,11 @@ export async function syncPulsesAndIOCs(
 ): Promise<{ pulses: number; iocs: number; links: number }> {
     const driver = getNeo4jDriver();
 
+    // Order NEWEST-FIRST. Without this, `.limit(maxPulses)` returned an
+    // arbitrary (insertion-order = oldest) slice, so freshly-ingested pulses
+    // never made the cap and the Neo4j Pulse corpus stayed frozen while the
+    // Postgres table grew. MERGE accumulates, so syncing newest-first tops up
+    // the graph with new pulses each run; older ones already exist as nodes.
     const pulseRows = await db.select({
         id: pulses.id,
         otxId: pulses.otxId,
@@ -23,7 +28,7 @@ export async function syncPulsesAndIOCs(
         adversary: pulses.adversary,
         tlp: pulses.tlp,
         tags: pulses.tags,
-    }).from(pulses).limit(maxPulses);
+    }).from(pulses).orderBy(desc(pulses.createdAt)).limit(maxPulses);
 
     if (pulseRows.length === 0) return { pulses: 0, iocs: 0, links: 0 };
 

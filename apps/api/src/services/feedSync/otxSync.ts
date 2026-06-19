@@ -4,7 +4,7 @@
 
 import { notifyNewIOC, notifySyncStatus } from '../../websocket';
 import { db } from '@rinjani/db';
-import { iocs } from '@rinjani/db/schema';
+import { iocs, pulses } from '@rinjani/db/schema';
 import { createLogger } from '../../lib/logger';
 import type { OTXPulse, OTXSyncOptions, SyncResult } from './types';
 import { otxFetch, mapOTXType, getExistingIOCValues, getExistingPulseIds } from './otxClient';
@@ -38,12 +38,12 @@ export async function syncOTXFeed(options: OTXSyncOptions = {}): Promise<SyncRes
 
     try {
         log.info('Fetching subscribed pulses...');
-        const pulses = await fetchSubscribedPulses({ limit: options.limit || 10, ...options });
-        log.info('Found pulses', { count: pulses.length });
+        const fetchedPulses = await fetchSubscribedPulses({ limit: options.limit || 10, ...options });
+        log.info('Found pulses', { count: fetchedPulses.length });
 
         // Collect all indicator values for batch delta check
         const allIndicatorValues: string[] = [];
-        for (const pulse of pulses) {
+        for (const pulse of fetchedPulses) {
             if (pulse.indicators) {
                 for (const ind of pulse.indicators) {
                     allIndicatorValues.push(ind.indicator);
@@ -56,9 +56,12 @@ export async function syncOTXFeed(options: OTXSyncOptions = {}): Promise<SyncRes
         log.info('Delta check complete', { totalIndicators: allIndicatorValues.length, existingInDB: existingValues.size });
 
         // Also check which pulses are new
-        const existingPulses = await getExistingPulseIds(pulses.map(p => p.id));
+        const existingPulses = await getExistingPulseIds(fetchedPulses.map(p => p.id));
 
-        for (const pulse of pulses) {
+        // Track pulse rows actually persisted this run (see pulse-upsert below).
+        let newPulsesWritten = 0;
+
+        for (const pulse of fetchedPulses) {
             const indicatorCount = pulse.indicators?.length || 0;
             const isNewPulse = !existingPulses.has(pulse.id);
 
@@ -83,6 +86,41 @@ export async function syncOTXFeed(options: OTXSyncOptions = {}): Promise<SyncRes
                 result.indicatorsUpdated += (indicatorCount - newInThisPulse);
             }
             result.pulsesProcessed++;
+
+            // PERSIST THE PULSE ITSELF. The live handler historically wrote only
+            // IOCs, which left the `pulses` table frozen — pulse intelligence
+            // (named threats: campaigns, adversaries, malware families) stopped
+            // updating while IOCs kept flowing. Upsert on otx_id so re-fetched
+            // pulses refresh and genuinely-new ones land. This is what unfreezes
+            // the corpus (was stuck at 533, newest 2026-06-12).
+            try {
+                const pulseRow = {
+                    name: pulse.name,
+                    description: pulse.description || null,
+                    author: pulse.author_name || null,
+                    tlp: pulse.tlp || 'white',
+                    tags: pulse.tags || [],
+                    targetedCountries: pulse.targeted_countries || [],
+                    malwareFamilies: pulse.malware_families || [],
+                    attackIds: pulse.attack_ids || [],
+                    references: pulse.references || [],
+                    indicatorCount,
+                    otxModified: pulse.modified ? new Date(pulse.modified) : null,
+                    rawData: pulse as unknown as Record<string, unknown>,
+                    syncedAt: new Date(),
+                };
+                await db.insert(pulses).values({
+                    otxId: pulse.id,
+                    otxCreated: pulse.created ? new Date(pulse.created) : null,
+                    ...pulseRow,
+                }).onConflictDoUpdate({
+                    target: pulses.otxId,
+                    set: { ...pulseRow, updatedAt: new Date() },
+                });
+                if (isNewPulse) newPulsesWritten++;
+            } catch (pErr) {
+                result.errors.push(`Pulse persist failed ${pulse.id}: ${(pErr as Error).message}`);
+            }
 
             for (const indicator of pulse.indicators) {
                 if (result.indicators!.length >= MAX_INDICATORS_FOR_ENRICHMENT) break;
@@ -140,8 +178,12 @@ export async function syncOTXFeed(options: OTXSyncOptions = {}): Promise<SyncRes
             }
         }
 
-        const newPulses = pulses.length - existingPulses.size;
-        log.info('Sync complete', { pulsesProcessed: result.pulsesProcessed, newPulses, indicatorsProcessed: result.indicatorsProcessed, indicatorsAdded: result.indicatorsAdded, forEnrichment: result.indicators!.length });
+        const newPulses = fetchedPulses.length - existingPulses.size;
+        // items_ingested should reflect real new intelligence: new pulses +
+        // new indicators. Without this, runs that add fresh pulses whose IOCs
+        // happen to pre-exist reported 0 (indicatorsAdded-only) and looked dead.
+        result.totalRowsAffected = newPulsesWritten + result.indicatorsAdded;
+        log.info('Sync complete', { pulsesProcessed: result.pulsesProcessed, newPulses, newPulsesWritten, indicatorsProcessed: result.indicatorsProcessed, indicatorsAdded: result.indicatorsAdded, forEnrichment: result.indicators!.length });
 
         // Broadcast sync completion to dashboard clients
         notifySyncStatus({

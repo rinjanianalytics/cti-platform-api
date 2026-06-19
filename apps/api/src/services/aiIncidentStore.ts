@@ -22,11 +22,17 @@ export async function listAiIncidents(filters: {
     if (filters.since && /^\d{4}-\d{2}-\d{2}$/.test(filters.since)) {
         conds.push(gte(aiIncidents.incidentDate, filters.since));
     }
+    // Order by INGESTION recency, not event date. incidentdatabase.ai publishes
+    // back-dated incidents (a catalog entry added today can describe an event
+    // from months ago), so an incident-date sort makes the feed look frozen —
+    // freshly-ingested incidents sink below an older `incident_date` ceiling.
+    // `created_at DESC` surfaces what was actually just pulled; `incident_id` is
+    // a stable tiebreak within the bulk-seeded rows (which share a created_at).
     return db
         .select()
         .from(aiIncidents)
         .where(conds.length ? and(...conds) : undefined)
-        .orderBy(desc(aiIncidents.incidentDate))
+        .orderBy(desc(aiIncidents.createdAt), desc(aiIncidents.incidentId))
         .limit(Math.min(filters.limit ?? 100, 500));
 }
 

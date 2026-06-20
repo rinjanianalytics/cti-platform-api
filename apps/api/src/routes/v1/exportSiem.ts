@@ -22,7 +22,7 @@ import {
 } from '@rinjani/core/siemFormatters';
 import { pushToSplunk } from '../../services/siemPush/splunkHec';
 import { pushToElastic } from '../../services/siemPush/elasticBulk';
-import { recordSiemExport } from '../../services/signalFunnel';
+import { recordSiemExport, listSiemExports } from '../../services/signalFunnel';
 
 const log = createLogger('SIEMExport');
 const exportSiem = new Hono();
@@ -110,6 +110,12 @@ exportSiem.post('/export/ecs', async (c) => {
             'X-Rinjani-Record-Count': String(iocs.length),
         },
     });
+});
+
+// GET /siem/exports — recent export/push audit log (the funnel's Actioned provenance)
+exportSiem.get('/siem/exports', async (c) => {
+    const limit = Math.min(100, Math.max(1, Number(c.req.query('limit') ?? 20)));
+    return c.json({ success: true, data: await listSiemExports(limit) });
 });
 
 // ── Direct push (Phase 4 #2 closer) ─────────────────────────────────

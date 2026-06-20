@@ -106,3 +106,6 @@ export * from './onchain';
 
 // AI-incident model — AI vertical (incidentdatabase.ai feed)
 export * from './aiIncidents';
+
+// SIEM export/push audit — the signal funnel's "Actioned" provenance
+export * from './siemExportLogs';

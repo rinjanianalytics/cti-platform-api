@@ -11,7 +11,7 @@
  * Counts that depend on optional tables (techniques, siem_export_logs) are read
  * defensively so a fresh/partly-migrated DB can't 500 the whole funnel.
  */
-import { db, rawQuery, sql, siemExportLogs, type NewSiemExportLogRow } from '@rinjani/db';
+import { db, rawQuery, sql, desc, siemExportLogs, type NewSiemExportLogRow } from '@rinjani/db';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('SignalFunnel');
@@ -71,5 +71,35 @@ export async function recordSiemExport(entry: NewSiemExportLogRow): Promise<void
         await db.insert(siemExportLogs).values(entry);
     } catch (err) {
         log.warn('failed to record SIEM export', { err: String(err) });
+    }
+}
+
+export interface SiemExportEntry {
+    id: string;
+    format: string;
+    channel: string;
+    destination: string | null;
+    recordCount: number;
+    status: string;
+    createdAt: string;
+}
+
+/** Recent export/push audit rows (newest first) — the funnel's Actioned provenance.
+ *  Defensive: an unmigrated table degrades to [] rather than 500ing. */
+export async function listSiemExports(limit = 20): Promise<SiemExportEntry[]> {
+    try {
+        const rows = await db.select().from(siemExportLogs).orderBy(desc(siemExportLogs.createdAt)).limit(limit);
+        return rows.map((r) => ({
+            id: r.id,
+            format: r.format,
+            channel: r.channel,
+            destination: r.destination,
+            recordCount: r.recordCount,
+            status: r.status,
+            createdAt: r.createdAt.toISOString(),
+        }));
+    } catch (err) {
+        log.warn('failed to list SIEM exports', { err: String(err) });
+        return [];
     }
 }

@@ -62,6 +62,7 @@ import watchRoutes from './v1/watch';
 import timelineRoutes from './v1/timeline';
 import reportRoutes from './v1/reports';
 import hypothesesRoutes from './v1/hypotheses';
+import huntRoutes from './v1/hunt';
 import brandMonitorRoutes from './v1/brandMonitor';
 import actorTtpChangelogRoutes from './v1/actorTtpChangelog';
 import dataBreachRoutes from './v1/dataBreaches';
@@ -133,6 +134,7 @@ v1.route('/', statsRoutes);      // /stats/*, /tactics, /monitoring/*
 v1.route('/', mitreRoutes);      // /techniques, /threat-actors, /malware, /tools
 v1.route('/', graphRoutes);      // /graph/layout, /graph/neo4j/*
 v1.route('/', agentRoutes);      // /agent/tools, /agent/tool/:name  (AA.1 tool plane)
+v1.route('/', huntRoutes);       // /hunt  (B3 graph-first SIEM hunt — deterministic)
 v1.route('/', onchainRoutes);    // /onchain/wallets  (AA.6.1 follow-the-money)
 v1.route('/', aiIncidentsRoutes); // /ai-incidents, /ai-incidents/stats  (AI vertical)
 v1.route('/', v1SearchRoutes);   // /search, /search/vector, /search/similar/*

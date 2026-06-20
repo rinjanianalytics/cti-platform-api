@@ -21,7 +21,7 @@ import {
     CaseObservableSchema, CaseTaskSchema, UpdateCaseTaskSchema,
     CaseTimelineSchema, CaseFromAlertSchema,
 } from '../../lib/schemas';
-import { alertStore } from '../../queues/workers';
+import { getAlert } from '../../services/alertsStore';
 
 const log = createLogger('Cases');
 const cases = new Hono();
@@ -342,7 +342,7 @@ cases.post('/cases/from-alert/:alertId', requireRole('admin', 'analyst'), async 
     const userId = c.get('user')?.id || 'unknown';
 
     // Find the alert
-    const alert = alertStore.find(a => a.id === alertId);
+    const alert = await getAlert(alertId);
     if (!alert) throw new NotFoundError('Alert', alertId);
 
     const title = body.title || `Case from Alert: ${alert.title}`;

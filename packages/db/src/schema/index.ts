@@ -46,6 +46,9 @@ export * from './config';
 // In-app Notifications
 export * from './notifications';
 
+// Alerts — durable triage queue (replaces the in-memory alertStore)
+export * from './alerts';
+
 // MITRE FiGHT (5G Hierarchy of Threats)
 export * from './fight';
 

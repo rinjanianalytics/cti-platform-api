@@ -1192,6 +1192,10 @@ export type SightingFeed = z.infer<typeof SightingFeedSchema>;
 export const AlertListFilterSchema = PaginationSchema.extend({
     severity: z.enum(['critical', 'high', 'medium', 'low', 'info']).optional(),
     unread: z.coerce.boolean().optional(),
+    // Durable-store faceting (additive — older clients omit these).
+    read: z.coerce.boolean().optional(),
+    source: z.string().max(120).optional(),
+    type: z.string().max(60).optional(),
 });
 export type AlertListFilter = z.infer<typeof AlertListFilterSchema>;
 

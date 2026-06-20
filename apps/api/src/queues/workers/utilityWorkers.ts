@@ -11,6 +11,7 @@ import type { AIAnalysisJobData, NotificationJobData, AlertJobData } from '../in
 import { notificationQueue } from '../index';
 import { createLogger } from '../../lib/logger';
 import { runJobWithSpan } from '../tracing';
+import { insertAlert } from '../../services/alertsStore';
 
 // ============================================================================
 // AI Analysis Worker
@@ -119,17 +120,6 @@ export const notificationWorker = new Worker<NotificationJobData>(
 // Alerts Worker
 // ============================================================================
 
-// In-memory alert store (replace with DB in production)
-interface StoredAlert extends AlertJobData {
-    id: string;
-    createdAt: string;
-    read: boolean;
-    updatedAt?: string;
-    acknowledged?: boolean;
-    acknowledgedAt?: string;
-}
-export const alertStore: StoredAlert[] = [];
-
 export const alertsWorker = new Worker<AlertJobData>(
     'alerts',
     async (job: Job<AlertJobData>) => runJobWithSpan('alerts', job, async () => {
@@ -139,27 +129,16 @@ export const alertsWorker = new Worker<AlertJobData>(
         const { severity, type, title, message, source, metadata } = job.data;
 
         try {
-            // Store alert in memory (will be DB later)
-            const storedAlert: StoredAlert = {
-                id: job.id as string,
-                severity,
-                type,
-                title,
-                message,
-                source,
-                metadata,
-                createdAt: new Date().toISOString(),
-                read: false,
-            };
-
-            alertStore.unshift(storedAlert); // Add to front (newest first)
-
-            // Keep only last 1000 alerts in memory
-            if (alertStore.length > 1000) {
-                alertStore.length = 1000;
+            // Persist the alert to the durable store (table `alerts`). Best-effort
+            // so a not-yet-migrated table can't fail the job or block the in-app
+            // notification below (which powers the bell).
+            let stored: Awaited<ReturnType<typeof insertAlert>> = null;
+            try {
+                stored = await insertAlert({ id: job.id as string, severity, type, title, message, source, metadata: metadata ?? {} });
+                log.info('Alert stored', { alertId: job.id, title, severity });
+            } catch (err) {
+                log.warn('alert persist deferred (table migrated?)', { err: String(err) });
             }
-
-            log.info('Alert stored', { alertId: job.id, title, severity });
 
             // Persist to DB so the dashboard notification bell shows it
             await createInAppNotification({
@@ -195,7 +174,7 @@ export const alertsWorker = new Worker<AlertJobData>(
                 success: true,
                 alertId: job.id,
                 severity,
-                storedAt: storedAlert.createdAt,
+                storedAt: (stored?.createdAt ?? new Date()).toISOString(),
             };
         } catch (error) {
             log.error('Job failed', error as Error, { jobId: job.id });

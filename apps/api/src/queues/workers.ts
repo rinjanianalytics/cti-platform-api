@@ -13,7 +13,7 @@ export { feedSyncWorker, enrichmentWorker } from './workers/feedWorkers';
 export { feedBatchWorker } from './workers/feedBatchWorker';
 
 // AI analysis + notification + alerts workers
-export { aiAnalysisWorker, notificationWorker, alertsWorker, alertStore } from './workers/utilityWorkers';
+export { aiAnalysisWorker, notificationWorker, alertsWorker } from './workers/utilityWorkers';
 
 // Neo4j sync worker
 export { neo4jSyncWorker } from './workers/syncWorkers';

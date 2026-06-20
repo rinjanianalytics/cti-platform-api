@@ -9,6 +9,7 @@
 import { and, count, db, desc, eq, sql, ilike, inArray } from '@rinjani/db';
 import { threatActors, iocs, vulnerabilities, mitreRelationships, sightings } from '@rinjani/db/schema';
 import { builder, SearchResultType } from './schema';
+import { computeSignalFunnel } from '../services/signalFunnel';
 
 // Neo4j graph services
 import {
@@ -609,6 +610,23 @@ builder.queryType({
                     kevCount: kevResult?.count ?? 0,
                 };
             },
+        }),
+
+        // The signal funnel in one query (ingested → … → actioned). Shared with
+        // the REST /v1/stats/funnel route via services/signalFunnel.
+        signalFunnel: t.field({
+            type: t.builder.objectRef<{
+                ingested: number; indicators: number; correlated: number; validated: number; actioned: number;
+            }>('SignalFunnel').implement({
+                fields: (sf) => ({
+                    ingested: sf.exposeInt('ingested'),
+                    indicators: sf.exposeInt('indicators'),
+                    correlated: sf.exposeInt('correlated'),
+                    validated: sf.exposeInt('validated'),
+                    actioned: sf.exposeInt('actioned'),
+                }),
+            }),
+            resolve: () => computeSignalFunnel(),
         }),
 
         // ==================================================================

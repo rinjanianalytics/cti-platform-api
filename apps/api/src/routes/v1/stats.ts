@@ -13,6 +13,7 @@ import { pulses, indicators, syncLogs, threatActors } from '@rinjani/db/schema';
 // below — Drizzle schema imports aren't needed for the SQL-string path.
 import * as opensearch from '../../services/opensearch';
 import { DaysQuerySchema } from '../../lib/schemas';
+import { computeSignalFunnel } from '../../services/signalFunnel';
 
 const router = new Hono();
 
@@ -289,6 +290,16 @@ router.get('/stats/distribution', async (c) => {
 router.get('/stats/severity-trend', async (c) => {
     const { days } = DaysQuerySchema.parse(c.req.query());
     const data = await opensearch.getDateHistogram(days);
+    return c.json({ success: true, data });
+});
+
+/**
+ * GET /v1/stats/funnel
+ * The signal funnel in one query: ingested → indicators → correlated →
+ * validated → actioned (the last from siem_export_logs pushes).
+ */
+router.get('/stats/funnel', async (c) => {
+    const data = await computeSignalFunnel();
     return c.json({ success: true, data });
 });
 

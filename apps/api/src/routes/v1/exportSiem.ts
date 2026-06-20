@@ -22,10 +22,13 @@ import {
 } from '@rinjani/core/siemFormatters';
 import { pushToSplunk } from '../../services/siemPush/splunkHec';
 import { pushToElastic } from '../../services/siemPush/elasticBulk';
+import { recordSiemExport } from '../../services/signalFunnel';
 
 const log = createLogger('SIEMExport');
 const exportSiem = new Hono();
 exportSiem.use('*', requireAuth);
+
+const userId = (c: { get: (k: 'user') => { id?: string } | undefined }) => c.get('user')?.id ?? null;
 
 async function fetchIocs(filters: { dateFrom?: string; dateTo?: string; severity?: string; type?: string; limit: number }): Promise<SiemIOC[]> {
     const wheres: string[] = ['1=1'];
@@ -66,6 +69,7 @@ exportSiem.post('/export/cef', async (c) => {
     const iocs = await fetchIocs(body);
     const body_ = toCefBatch(iocs);
     log.info('CEF export', { count: iocs.length });
+    await recordSiemExport({ format: 'cef', channel: 'export', recordCount: iocs.length, status: 'success', userId: userId(c) });
     return new Response(body_, {
         status: 200,
         headers: {
@@ -81,6 +85,7 @@ exportSiem.post('/export/leef', async (c) => {
     const iocs = await fetchIocs(body);
     const body_ = toLeefBatch(iocs);
     log.info('LEEF export', { count: iocs.length });
+    await recordSiemExport({ format: 'leef', channel: 'export', recordCount: iocs.length, status: 'success', userId: userId(c) });
     return new Response(body_, {
         status: 200,
         headers: {
@@ -96,6 +101,7 @@ exportSiem.post('/export/ecs', async (c) => {
     const iocs = await fetchIocs(body);
     const ndjson = ecsToNdjson(iocs.map(toEcs));
     log.info('ECS NDJSON export', { count: iocs.length });
+    await recordSiemExport({ format: 'ecs', channel: 'export', recordCount: iocs.length, status: 'success', userId: userId(c) });
     return new Response(ndjson, {
         status: 200,
         headers: {
@@ -116,6 +122,7 @@ exportSiem.post('/siem/push/splunk', async (c) => {
         sourcetype: body.sourcetype,
     });
     log.info('Splunk HEC push', { batchSize: result.batchSize, accepted: result.accepted, ok: result.ok });
+    await recordSiemExport({ format: 'splunk', channel: 'push', destination: body.index ?? null, recordCount: result.accepted ?? result.batchSize ?? iocs.length, status: result.ok ? 'success' : 'failed', userId: userId(c) });
     return c.json({ success: result.ok, data: result }, result.ok ? 200 : 502);
 });
 
@@ -124,6 +131,7 @@ exportSiem.post('/siem/push/elastic', async (c) => {
     const iocs = await fetchIocs(body);
     const result = await pushToElastic(iocs, { index: body.index });
     log.info('Elastic _bulk push', { batchSize: result.batchSize, indexed: result.indexed, errorCount: result.errors.length, ok: result.ok });
+    await recordSiemExport({ format: 'elastic', channel: 'push', destination: body.index ?? null, recordCount: result.indexed ?? result.batchSize ?? iocs.length, status: result.ok ? 'success' : 'failed', userId: userId(c) });
     return c.json({ success: result.ok, data: result }, result.ok ? 200 : 502);
 });
 

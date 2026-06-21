@@ -363,10 +363,19 @@ export async function iocPivot(
             OPTIONAL MATCH (pulse)-[r2:ATTRIBUTED_TO]->(actor:Actor)
             OPTIONAL MATCH (otherIOC:IOC)-[r3:FOUND_IN]->(pulse)
             WHERE otherIOC <> ioc
+            // Cross-domain reach (densifyCrossDomain): the on-chain Wallet the IOC
+            // refers to (same address) and the actor attributed directly to the IOC.
+            OPTIONAL MATCH (ioc)-[r4:REFERS_TO]->(wallet:Wallet)
+            OPTIONAL MATCH (ioc)-[r5:ATTRIBUTED_TO]->(directActor:Actor)
             WITH ioc, pulse, actor, r1, r2,
                  collect(DISTINCT otherIOC)[0..$limit] AS relatedIOCs,
-                 collect(DISTINCT r3)[0..$limit] AS relatedRels
-            RETURN ioc, pulse, actor, r1, r2, relatedIOCs, relatedRels
+                 collect(DISTINCT r3)[0..$limit] AS relatedRels,
+                 collect(DISTINCT wallet) AS wallets,
+                 collect(DISTINCT r4) AS walletRels,
+                 collect(DISTINCT directActor) AS directActors,
+                 collect(DISTINCT r5) AS directActorRels
+            RETURN ioc, pulse, actor, r1, r2, relatedIOCs, relatedRels,
+                   wallets, walletRels, directActors, directActorRels
         `, { value: iocValue, limit: neo4j.int(maxResults) });
 
         const nodes: GraphNode[] = [];
@@ -406,6 +415,27 @@ export async function iocPivot(
                     const src = nodeById.get(r.startNodeElementId);
                     const tgt = nodeById.get(r.endNodeElementId);
                     if (src && tgt) edges.push(toGraphEdge(r, src, tgt));
+                }
+            }
+
+            // Cross-domain nodes: on-chain wallets (REFERS_TO) + directly-attributed actors.
+            for (const key of ['wallets', 'directActors']) {
+                const arr: Neo4jNode[] = rec.get(key) || [];
+                for (const n of arr) {
+                    if (n) {
+                        nodeById.set(n.elementId, n);
+                        nodes.push(toGraphNode(n));
+                    }
+                }
+            }
+            for (const key of ['walletRels', 'directActorRels']) {
+                const arr: Neo4jRelationship[] = rec.get(key) || [];
+                for (const r of arr) {
+                    if (r) {
+                        const src = nodeById.get(r.startNodeElementId);
+                        const tgt = nodeById.get(r.endNodeElementId);
+                        if (src && tgt) edges.push(toGraphEdge(r, src, tgt));
+                    }
                 }
             }
         }

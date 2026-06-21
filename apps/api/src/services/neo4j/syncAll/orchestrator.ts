@@ -9,6 +9,7 @@ import neo4j from 'neo4j-driver';
 import { syncActors, syncTactics, syncTechniques, syncMalware, syncTools, syncTelco, syncWallets, syncFrameworks } from '../syncEntities';
 import { syncRelationships, syncGenericRelationships } from '../syncRelationships';
 import { syncPulsesAndIOCs, syncAllIOCs, syncCVEs, syncSimilarIOCs } from '../syncIOCs';
+import { densifyCrossDomain } from '../densify';
 import { createLogger } from '../../../lib/logger';
 
 const log = createLogger('Neo4j');
@@ -27,6 +28,7 @@ export interface Neo4jSyncResult {
     pulses: number;
     iocs: number;
     cves: number;
+    crossDomainEdges: number;
     totalNodes: number;
     totalEdges: number;
     durationMs: number;
@@ -99,6 +101,18 @@ export async function syncAllToNeo4j(
     }
     onProgress?.(95);
 
+    // Cross-domain densification — runs LAST, after Pulse/IOC + Wallet nodes
+    // exist, so IOC↔Wallet (REFERS_TO) and IOC→Actor (ATTRIBUTED_TO) edges can
+    // MATCH both endpoints. This is what makes a "pivot into graph" cross domains.
+    let crossDomainEdges = 0;
+    try {
+        const densify = await densifyCrossDomain();
+        crossDomainEdges = densify.iocWalletEdges + densify.iocActorEdges;
+    } catch (err) {
+        log.warn('Cross-domain densify skipped', { error: err });
+    }
+    onProgress?.(97);
+
     const driver = getNeo4jDriver();
     const session = driver.session();
     let totalNodes = 0;
@@ -131,6 +145,7 @@ export async function syncAllToNeo4j(
         pulses: pulseCount,
         iocs: iocCount,
         cves: cveCount,
+        crossDomainEdges,
         totalNodes,
         totalEdges,
         durationMs: duration,

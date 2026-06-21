@@ -27,6 +27,11 @@ export { syncRelationships, syncGenericRelationships, labelForEntityType } from 
 // IOC sync (pulses, CVEs, all IOCs, similarity)
 export { syncPulsesAndIOCs, syncCVEs, syncAllIOCs, syncSimilarIOCs } from './neo4j/syncIOCs';
 
+// Cross-domain densification (IOC↔Wallet, IOC→Actor) — makes graph pivots
+// land on real neighbourhoods instead of islands.
+export { densifyCrossDomain } from './neo4j/densify';
+export type { DensifyResult } from './neo4j/densify';
+
 // Full sync orchestrator
 export { syncAllToNeo4j } from './neo4j/syncAll';
 export type { Neo4jSyncResult } from './neo4j/syncAll';

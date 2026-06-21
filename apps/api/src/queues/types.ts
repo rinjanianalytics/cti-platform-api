@@ -45,7 +45,7 @@ export interface AlertJobData {
 }
 
 export interface Neo4jSyncJobData {
-    syncType: 'full' | 'actors' | 'techniques' | 'malware' | 'tools' | 'relationships' | 'telco' | 'onchain' | 'frameworks' | 'pulses-iocs' | 'all-iocs' | 'cves' | 'similarity';
+    syncType: 'full' | 'actors' | 'techniques' | 'malware' | 'tools' | 'relationships' | 'telco' | 'onchain' | 'frameworks' | 'pulses-iocs' | 'all-iocs' | 'cves' | 'similarity' | 'densify';
     options?: {
         maxPulses?: number;
         maxCVEs?: number;

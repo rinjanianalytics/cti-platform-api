@@ -76,6 +76,12 @@ export async function ensureNeo4jConstraints(): Promise<void> {
         // Web Intelligence (Phase 44c)
         'CREATE CONSTRAINT websource_id IF NOT EXISTS FOR (w:WebSource) REQUIRE w.itemId IS UNIQUE',
         'CREATE CONSTRAINT campaign_id IF NOT EXISTS FOR (c:Campaign) REQUIRE c.pgId IS UNIQUE',
+        // Wallet identity (on-chain) — MERGE keys on refId.
+        'CREATE CONSTRAINT wallet_ref IF NOT EXISTS FOR (w:Wallet) REQUIRE w.refId IS UNIQUE',
+        // Lookup indexes for cross-domain densification (IOC↔Wallet by address):
+        // the REFERS_TO pass matches IOC.value per wallet, so IOC.value must be indexed.
+        'CREATE INDEX ioc_value IF NOT EXISTS FOR (i:IOC) ON (i.value)',
+        'CREATE INDEX wallet_address IF NOT EXISTS FOR (w:Wallet) ON (w.address)',
     ];
 
     try {

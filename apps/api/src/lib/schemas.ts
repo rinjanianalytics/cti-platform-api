@@ -968,7 +968,7 @@ export type UpdateFeed = z.infer<typeof UpdateFeedSchema>;
 
 /** POST /v1/graph/neo4j/sync — Trigger a Neo4j sync job */
 export const Neo4jSyncSchema = z.object({
-    syncType: z.enum(['full', 'incremental', 'iocs', 'all-iocs', 'actors', 'cves', 'techniques', 'malware', 'tools', 'relationships', 'telco', 'onchain', 'frameworks', 'pulses-iocs', 'similarity']).default('full'),
+    syncType: z.enum(['full', 'incremental', 'iocs', 'all-iocs', 'actors', 'cves', 'techniques', 'malware', 'tools', 'relationships', 'telco', 'onchain', 'frameworks', 'pulses-iocs', 'similarity', 'densify']).default('full'),
     options: z.record(z.unknown()).default({}),
 });
 export type Neo4jSync = z.infer<typeof Neo4jSyncSchema>;

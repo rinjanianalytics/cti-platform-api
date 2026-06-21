@@ -8,7 +8,7 @@ import type { Neo4jSyncJobData } from '../types';
 import {
     syncAllToNeo4j, syncActors, syncTactics, syncTechniques,
     syncMalware, syncTools, syncRelationships, syncGenericRelationships, syncPulsesAndIOCs, syncCVEs,
-    syncSimilarIOCs, syncAllIOCs, syncTelco, syncWallets, syncFrameworks,
+    syncSimilarIOCs, syncAllIOCs, syncTelco, syncWallets, syncFrameworks, densifyCrossDomain,
 } from '../../services/neo4j';
 import type { Neo4jSyncResult } from '../../services/neo4j';
 import { createLogger } from '../../lib/logger';
@@ -98,6 +98,13 @@ export const neo4jSyncWorker = new Worker<Neo4jSyncJobData>(
                         )
                     };
                     break;
+                case 'densify': {
+                    // Cross-domain edges (IOC↔Wallet, IOC→Actor). Standalone so the
+                    // graph can be densified without a full re-sync.
+                    const d = await densifyCrossDomain((pct) => job.updateProgress(pct));
+                    result = { iocWalletEdges: d.iocWalletEdges, iocActorEdges: d.iocActorEdges };
+                    break;
+                }
                 default:
                     throw new Error(`Unknown sync type: ${syncType}`);
             }

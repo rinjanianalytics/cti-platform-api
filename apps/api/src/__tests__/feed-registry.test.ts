@@ -22,10 +22,12 @@ describe('Feed Registry', () => {
     // scam-address feed (dual-sinks iocs + wallets, like ofac).
     // `defillama` joined as benign on-chain protocol-label attribution
     // (wallets-only sink; powers the free lookup's DB-first path).
+    // `intelnews` joined as Phase 1 of RSS + extraction — broad threat-intel
+    // narrative RSS (DFIR Report, CISA, vendor blogs) sinking to intel_reports.
     const EXPECTED_FEEDS = [
         'otx', 'cisa', 'cveorg', 'nvd', 'abusessl', 'threatfox',
         'urlhaus', 'malwarebazaar', 'openphish', 'ofac', 'aiid', 'scamsniffer',
-        'defillama', 'mitre', 'mispgalaxy', 'epss', 'hibp', 'telconews',
+        'defillama', 'mitre', 'mispgalaxy', 'epss', 'hibp', 'telconews', 'intelnews',
     ];
 
     describe('getRegisteredFeeds', () => {

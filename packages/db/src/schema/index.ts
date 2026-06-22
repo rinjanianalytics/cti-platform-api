@@ -112,3 +112,6 @@ export * from './aiIncidents';
 
 // SIEM export/push audit — the signal funnel's "Actioned" provenance
 export * from './siemExportLogs';
+
+// Broad threat-intel narrative ingestion (RSS) — Phase 1 of RSS + extraction
+export * from './intelReports';

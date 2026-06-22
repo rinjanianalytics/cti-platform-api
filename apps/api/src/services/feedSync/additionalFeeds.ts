@@ -92,6 +92,12 @@ export async function syncTelcoNewsFeed(): Promise<SyncResult> {
     return normalise(await syncTelcoNews());
 }
 
+export async function syncIntelNewsFeed(): Promise<SyncResult> {
+    // @ts-ignore — worker scripts outside rootDir, resolved at runtime
+    const { syncIntelNews } = await import('../../../../worker/src/feeds/intel-news');
+    return normalise(await syncIntelNews());
+}
+
 export async function syncMITREFeed(): Promise<SyncResult> {
     try {
         // @ts-ignore

@@ -258,11 +258,21 @@ router.get('/tools/:id', async (c) => {
  * }
  */
 router.get('/mitre/matrix', async (c) => {
+    // Optional ?days=N windows the actor-attribution counts (actorCount/
+    // usageCount) to relationships seen within N days; omitted → all-time.
+    // Cache key varies by window so windowed and all-time responses don't
+    // collide. NOTE: filters on COALESCE(last_seen, updated_at, created_at) —
+    // i.e. attribution recency in our store. Validate the window is meaningful
+    // against the box's relationship-timestamp distribution after deploy.
+    const daysRaw = Number(c.req.query('days'));
+    const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(Math.floor(daysRaw), 365) : null;
+    const cacheKey = `rjn:mitre:matrix:cache${days ? `:${days}d` : ''}`;
+
     // Try Redis cache first (5-minute TTL)
     let cached: string | null = null;
     try {
         const { cacheConnection } = await import('../../services/redis');
-        cached = await cacheConnection.get('rjn:mitre:matrix:cache');
+        cached = await cacheConnection.get(cacheKey);
         if (cached) {
             c.header('X-Cache', 'HIT');
             return c.json({ success: true, data: JSON.parse(cached) });
@@ -311,7 +321,8 @@ router.get('/mitre/matrix', async (c) => {
                 FROM relationships
                 WHERE relationship_type = 'uses'
                   AND source_type = 'intrusion-set'
-                  AND target_type = 'attack-pattern'`
+                  AND target_type = 'attack-pattern'
+                  ${days ? sql`AND COALESCE(last_seen, updated_at, created_at) >= now() - (${days}::int * interval '1 day')` : sql``}`
         ) as unknown as typeof usesRelationships;
     } catch {
         // Table unavailable — continue with empty relationships
@@ -448,7 +459,7 @@ router.get('/mitre/matrix', async (c) => {
     // Cache in Redis for 5 minutes
     try {
         const { cacheConnection } = await import('../../services/redis');
-        await cacheConnection.setex('rjn:mitre:matrix:cache', 300, JSON.stringify(result));
+        await cacheConnection.setex(cacheKey, 300, JSON.stringify(result));
     } catch {
         // Caching failed silently
     }

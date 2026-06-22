@@ -172,7 +172,20 @@ async function writeBatch(batch: SanctionedAddress[]): Promise<void> {
     const now = new Date();
 
     // --- IOC sink: surfaces in Landscape shift via the `sanctioned` tag ---
-    const iocRows = batch.map((a) => ({
+    // Collapse per `value` (the address). OFAC lists the SAME address under
+    // multiple chains (an 0x address appears as ETH + every ERC-20 it touches),
+    // but the iocs unique key is `value` alone — so without this dedup a single
+    // INSERT … ON CONFLICT tries to touch the same conflict row twice and
+    // Postgres aborts the whole batch ("cannot affect row a second time"). The
+    // wallet sink below keeps its per-chain (chain:address) rows. Union the
+    // chains an address is sanctioned on into the tags/metadata so nothing's lost.
+    const byValue = new Map<string, { a: SanctionedAddress; chains: Set<string> }>();
+    for (const a of batch) {
+        const existing = byValue.get(a.address);
+        if (existing) existing.chains.add(a.chain);
+        else byValue.set(a.address, { a, chains: new Set([a.chain]) });
+    }
+    const iocRows = [...byValue.values()].map(({ a, chains }) => ({
         type: 'crypto-address',
         value: a.address,
         source: 'ofac',
@@ -185,11 +198,12 @@ async function writeBatch(batch: SanctionedAddress[]): Promise<void> {
             'ofac',
             'sanctioned',
             'ofac-sdn',
-            a.chain,
+            ...chains,
             ...a.programs.map((p) => `ofac:${p.toLowerCase()}`),
         ],
         metadata: {
             chain: a.chain,
+            chains: [...chains],
             entity: a.entityName,
             sdn_type: a.sdnType,
             programs: a.programs,

@@ -34,6 +34,7 @@ const FEED_REGISTRY_TO_SOURCE: Record<string, string> = {
     mitreSync:          'mitre',
     mispGalaxySync:     'mispgalaxy',
     epssSync:           'epss',
+    intelNewsSync:      'intelnews',
 };
 
 /** GET /admin/feeds — feed-centric view (every entry that has a feed_sync_runs source). */

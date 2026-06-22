@@ -261,6 +261,18 @@ export const JOB_REGISTRY: ScheduledJobRegistration[] = [
         queue: feedSyncQueue,
         payload: { source: 'telconews' },
     },
+    // Broad threat-intel narrative RSS (DFIR Report, CISA AA, vendor blogs) →
+    // intel_reports. Hourly — articles are time-sensitive and RSS is cheap.
+    // Phase 1 of RSS + extraction (collection only). See RSS-EXTRACTION-DESIGN.md.
+    {
+        key: 'intelNewsSync',
+        jobId: 'scheduled-intel-news-sync',
+        name: 'intel-news-sync',
+        description: 'Sync threat-intel narrative RSS (DFIR Report, CISA, vendor blogs) for TTP extraction',
+        defaultCron: '0 * * * *',
+        queue: feedSyncQueue,
+        payload: { source: 'intelnews' },
+    },
 
     // --- Graph sync ----------------------------------------------------
     {

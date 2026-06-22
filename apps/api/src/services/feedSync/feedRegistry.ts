@@ -21,7 +21,7 @@ import {
     syncAbuseSSLFeed, syncThreatFoxFeed, syncURLhausFeed,
     syncMalwareBazaarFeed, syncOpenPhishFeed, syncMITREFeed, syncMISPGalaxyFeed,
     syncEPSSFeed, syncOFACFeed, syncAIIncidentsFeed, syncScamSnifferFeed, syncDefiLlamaFeed,
-    syncTelcoNewsFeed,
+    syncTelcoNewsFeed, syncIntelNewsFeed,
 } from './additionalFeeds';
 import { syncHibpBreaches } from './hibpSync';
 import { FeedManifest as FeedManifestSchema } from '@rinjani/feed-engine';
@@ -77,6 +77,10 @@ const FEED_REGISTRY: Record<string, FeedHandler> = {
     // Tier-2 telco intel — telecom-keyword-filtered security news (RSS) → the
     // telco_advisories table, unioned into /v1/telco/intel.
     telconews: () => syncTelcoNewsFeed(),
+    // Broad threat-intel narrative ingestion (RSS) — curated CTI sources →
+    // intel_reports. Phase 1 of RSS + extraction (collection only); Phase 2
+    // pulls actor→technique TTPs out of these into actor_ttp_changes.
+    intelnews: () => syncIntelNewsFeed(),
 };
 
 /** Get the sync handler for a specific feed source. */

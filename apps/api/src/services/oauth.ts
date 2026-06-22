@@ -31,9 +31,62 @@ const log = createLogger('OAuth');
 const STATE_COOKIE = 'oauth_state';
 const VERIFIER_COOKIE = 'oauth_code_verifier';
 const PROVIDER_COOKIE = 'oauth_provider';
+const RETURN_COOKIE = 'oauth_return';
 const COOKIE_MAX_AGE = 10 * 60; // 10 minutes — only the auth round-trip
 
 const DASHBOARD_URL = process.env.DASHBOARD_URL || 'http://localhost:3000';
+
+// ---------------------------------------------------------------------------
+// Post-login redirect target
+//
+// A single shared API serves multiple dashboards (v1 at app.rinjanianalytics.com,
+// v2 at app-v2.…), so the post-OAuth redirect can't be one static DASHBOARD_URL —
+// it must echo whichever dashboard *started* the flow, or a v2 login lands on v1.
+// We capture the originating origin at /oauth/<provider>, stash it in an HttpOnly
+// cookie, and redirect there on callback. The origin is validated against an
+// allowlist (CORS_ORIGINS — the set already trusted to call the API — plus the
+// DASHBOARD_URL default) so this can't become an open redirect that leaks the JWT.
+// ---------------------------------------------------------------------------
+
+function allowedReturnOrigins(): Set<string> {
+    const origins = new Set<string>();
+    const add = (raw: string) => {
+        const v = raw.trim();
+        // '*' is deliberately skipped: reflecting an arbitrary origin would let
+        // an attacker harvest the token via the redirect.
+        if (!v || v === '*') return;
+        try { origins.add(new URL(v).origin); } catch { /* ignore malformed */ }
+    };
+    (process.env.CORS_ORIGINS || '').split(',').forEach(add);
+    add(DASHBOARD_URL);
+    return origins;
+}
+
+/**
+ * The dashboard origin that initiated this flow: an explicit `?redirect=` param
+ * (set by the dashboard) wins, else the Origin/Referer header. Returns the
+ * origin only when allowlisted; otherwise null so the caller falls back to
+ * DASHBOARD_URL.
+ */
+function requestedReturnOrigin(c: import('hono').Context): string | null {
+    const allowed = allowedReturnOrigins();
+    const candidates = [c.req.query('redirect'), c.req.header('origin'), c.req.header('referer')];
+    for (const cand of candidates) {
+        if (!cand) continue;
+        try {
+            const origin = new URL(cand).origin;
+            if (allowed.has(origin)) return origin;
+        } catch { /* skip malformed */ }
+    }
+    return null;
+}
+
+/** Where to send the user after callback — the stashed origin (re-validated) or DASHBOARD_URL. */
+function returnBase(c: import('hono').Context): string {
+    const stored = getCookie(c, RETURN_COOKIE);
+    if (stored && allowedReturnOrigins().has(stored)) return stored;
+    return DASHBOARD_URL;
+}
 
 // ---------------------------------------------------------------------------
 // Provider clients (lazy — only configured when env vars are present)
@@ -74,7 +127,7 @@ function isSecureCookie(): boolean {
     return process.env.NODE_ENV === 'production';
 }
 
-function setOAuthCookies(c: import('hono').Context, state: string, verifier: string | null, provider: string) {
+function setOAuthCookies(c: import('hono').Context, state: string, verifier: string | null, provider: string, returnOrigin: string | null) {
     const opts = {
         path: '/',
         httpOnly: true,
@@ -85,12 +138,14 @@ function setOAuthCookies(c: import('hono').Context, state: string, verifier: str
     setCookie(c, STATE_COOKIE, state, opts);
     if (verifier) setCookie(c, VERIFIER_COOKIE, verifier, opts);
     setCookie(c, PROVIDER_COOKIE, provider, opts);
+    if (returnOrigin) setCookie(c, RETURN_COOKIE, returnOrigin, opts);
 }
 
 function clearOAuthCookies(c: import('hono').Context) {
     deleteCookie(c, STATE_COOKIE, { path: '/' });
     deleteCookie(c, VERIFIER_COOKIE, { path: '/' });
     deleteCookie(c, PROVIDER_COOKIE, { path: '/' });
+    deleteCookie(c, RETURN_COOKIE, { path: '/' });
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +315,7 @@ oauthRouter.get('/google', async (c) => {
     const state = generateState();
     const codeVerifier = generateCodeVerifier();
     const url = google.createAuthorizationURL(state, codeVerifier, ['openid', 'email', 'profile']);
-    setOAuthCookies(c, state, codeVerifier, 'google');
+    setOAuthCookies(c, state, codeVerifier, 'google', requestedReturnOrigin(c));
     return c.redirect(url.toString());
 });
 
@@ -272,11 +327,12 @@ oauthRouter.get('/google/callback', async (c) => {
     const state = c.req.query('state');
     const storedState = getCookie(c, STATE_COOKIE);
     const verifier = getCookie(c, VERIFIER_COOKIE);
+    const base = returnBase(c); // read before clearing — points back at the originating dashboard
     clearOAuthCookies(c);
 
     if (!code || !state || !storedState || !verifier || state !== storedState) {
         log.warn('OAuth callback state mismatch', { provider: 'google', hasCode: !!code, sameState: state === storedState });
-        return c.redirect(`${DASHBOARD_URL}/login?error=invalid_state`);
+        return c.redirect(`${base}/login?error=invalid_state`);
     }
     try {
         const tokens = await google.validateAuthorizationCode(code, verifier);
@@ -286,10 +342,10 @@ oauthRouter.get('/google/callback', async (c) => {
             sub: user.id, name: user.name, role: user.role as 'admin' | 'analyst' | 'developer' | 'auditor' | 'viewer',
             exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60),
         });
-        return c.redirect(`${DASHBOARD_URL}/login?token=${encodeURIComponent(token)}`);
+        return c.redirect(`${base}/login?token=${encodeURIComponent(token)}`);
     } catch (err) {
         log.error('Google OAuth callback failed', err as Error);
-        return c.redirect(`${DASHBOARD_URL}/login?error=oauth_failed`);
+        return c.redirect(`${base}/login?error=oauth_failed`);
     }
 });
 
@@ -299,7 +355,7 @@ oauthRouter.get('/github', async (c) => {
 
     const state = generateState();
     const url = github.createAuthorizationURL(state, ['read:user', 'user:email']);
-    setOAuthCookies(c, state, null, 'github');
+    setOAuthCookies(c, state, null, 'github', requestedReturnOrigin(c));
     return c.redirect(url.toString());
 });
 
@@ -310,11 +366,12 @@ oauthRouter.get('/github/callback', async (c) => {
     const code = c.req.query('code');
     const state = c.req.query('state');
     const storedState = getCookie(c, STATE_COOKIE);
+    const base = returnBase(c); // read before clearing — points back at the originating dashboard
     clearOAuthCookies(c);
 
     if (!code || !state || !storedState || state !== storedState) {
         log.warn('OAuth callback state mismatch', { provider: 'github', hasCode: !!code, sameState: state === storedState });
-        return c.redirect(`${DASHBOARD_URL}/login?error=invalid_state`);
+        return c.redirect(`${base}/login?error=invalid_state`);
     }
     try {
         const tokens = await github.validateAuthorizationCode(code);
@@ -324,10 +381,10 @@ oauthRouter.get('/github/callback', async (c) => {
             sub: user.id, name: user.name, role: user.role as 'admin' | 'analyst' | 'developer' | 'auditor' | 'viewer',
             exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60),
         });
-        return c.redirect(`${DASHBOARD_URL}/login?token=${encodeURIComponent(token)}`);
+        return c.redirect(`${base}/login?token=${encodeURIComponent(token)}`);
     } catch (err) {
         log.error('GitHub OAuth callback failed', err as Error);
-        return c.redirect(`${DASHBOARD_URL}/login?error=oauth_failed`);
+        return c.redirect(`${base}/login?error=oauth_failed`);
     }
 });
 

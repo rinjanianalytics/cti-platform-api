@@ -1,52 +1,35 @@
 /**
- * Intel TTP extraction — Phase 2 of RSS + extraction (Tier 1, deterministic).
+ * Intel TTP extraction — Phase 3 (LLM).
  *
- * Reads pending intel_reports and pulls fresh actor → technique TTPs out of the
- * narrative WITHOUT an LLM:
- *   - techniques: ATT&CK ids cited verbatim (T1059, T1059.001), validated
- *     against the `techniques` catalogue.
- *   - actors: matched against the `threat_actors` gazetteer (name + aliases).
- *   - co-occurrence in one report ⇒ "actor uses technique".
+ * Tier-1 regex was a dead end here: CTI RSS feeds (and even the article pages)
+ * almost never cite ATT&CK technique IDs — TTPs are described in prose
+ * ("spearphishing attachment", "PowerShell for execution"). So we use the LLM
+ * (extractEntities → callLLM, Gemini/OpenRouter) to map prose → technique IDs +
+ * actor names, then resolve against the catalogue/gazetteer and write fresh
+ * actor→technique attributions to actor_ttp_changes via the actor_ttp_state
+ * dedup baseline (a pair already known is a no-op). See RSS-EXTRACTION-DESIGN.md.
  *
- * Resolves both to their MITRE STIX ids (techniques.real_stix_id /
- * threat_actors.real_stix_id — the same id form mitreTtpDiff writes), then
- * appends to actor_ttp_changes via the actor_ttp_state dedup baseline: a pair
- * already in state is a no-op, a genuinely new attribution yields one FRESH
- * changelog row (detected_at = the article's publish date). That's what makes
- * the Latest TTP changelog live again. See docs/RSS-EXTRACTION-DESIGN.md.
- *
- * Provenance + confidence ride in actor_ttp_changes.note so every row is
- * traceable to a source URL.
+ * Provenance + confidence ride in actor_ttp_changes.note. LLM-extracted T-codes
+ * are still validated against the techniques catalogue, and actor names against
+ * the threat_actors gazetteer — so a hallucinated id/actor can't get written.
  */
 
 import { db, sql } from '@rinjani/db';
-import { actorTtpChanges, actorTtpState, intelReports } from '@rinjani/db/schema';
+import { actorTtpChanges, actorTtpState } from '@rinjani/db/schema';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('IntelTTP');
 
-const CONFIDENCE = 0.6;           // Tier-1 co-occurrence — medium-high, auto-written.
-const MAX_REPORTS_PER_RUN = 300;
+const MAX_REPORTS_PER_RUN = 30;   // one LLM call each — bound cost/latency; backlog clears over hourly runs.
+const CONFIDENCE = 0.5;           // LLM prose→TTP — medium; provenance in note for review.
 const TECH_RE = /\bT\d{4}(?:\.\d{3})?\b/g;
 
-export interface Gazetteer {
-    techByMitre: Map<string, string>;                          // 'T1059' → attack-pattern--…
-    actors: Array<{ stixId: string; name: string; re: RegExp }>; // intrusion-set--… + a name/alias matcher
+interface Gazetteer {
+    techByMitre: Map<string, string>;   // 'T1059' → attack-pattern--…  (validates LLM technique ids)
+    actorByTerm: Map<string, string>;   // lowercased name/alias → intrusion-set--…  (resolves LLM actor names)
 }
 
-const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/**
- * Name/alias terms worth matching: drop short/generic tokens that false-match.
- * Keep digit-bearing short ids (FIN7, APT28) and anything ≥5 chars.
- */
-function actorTerms(name: string, aliases: string[]): string[] {
-    const raw = [name, ...(aliases ?? [])].map((t) => (t ?? '').trim().toLowerCase()).filter(Boolean);
-    const keep = raw.filter((t) => (t.length >= 4 && /\d/.test(t)) || t.length >= 5);
-    return [...new Set(keep)];
-}
-
-export async function buildGazetteer(): Promise<Gazetteer> {
+async function buildGazetteer(): Promise<Gazetteer> {
     const techRows = await db.execute(sql`
         SELECT mitre_id, real_stix_id FROM techniques
         WHERE real_stix_id IS NOT NULL AND real_stix_id <> ''
@@ -58,49 +41,40 @@ export async function buildGazetteer(): Promise<Gazetteer> {
         SELECT real_stix_id, name, aliases FROM threat_actors
         WHERE real_stix_id IS NOT NULL AND real_stix_id <> ''
     `) as unknown as Array<{ real_stix_id: string; name: string; aliases: string[] | null }>;
-    const actors: Gazetteer['actors'] = [];
+    const actorByTerm = new Map<string, string>();
     for (const a of actorRows) {
-        const terms = actorTerms(a.name, a.aliases ?? []);
-        if (terms.length === 0) continue;
-        actors.push({
-            stixId: a.real_stix_id,
-            name: a.name,
-            re: new RegExp(`\\b(?:${terms.map(esc).join('|')})\\b`, 'i'),
-        });
+        for (const term of [a.name, ...(a.aliases ?? [])]) {
+            const t = (term ?? '').trim().toLowerCase();
+            // Skip very short/generic terms an LLM might echo loosely.
+            if ((t.length >= 4 && /\d/.test(t)) || t.length >= 5) {
+                if (!actorByTerm.has(t)) actorByTerm.set(t, a.real_stix_id);
+            }
+        }
     }
-    return { techByMitre, actors };
+    return { techByMitre, actorByTerm };
 }
 
-/**
- * Pure: the catalogued techniques + known actors mentioned in `text`.
- * Actor matching is gated on a technique hit — an actor name alone (no TTP)
- * isn't an attribution and would just add noise.
- */
-export function extractMatches(
-    text: string,
-    gz: Gazetteer,
-): { techMitreIds: string[]; actors: Array<{ stixId: string; name: string }> } {
-    const techMitreIds = [...new Set(text.toUpperCase().match(TECH_RE) ?? [])].filter((id) => gz.techByMitre.has(id));
-    if (techMitreIds.length === 0) return { techMitreIds: [], actors: [] };
-    const actors = gz.actors.filter((a) => a.re.test(text)).map((a) => ({ stixId: a.stixId, name: a.name }));
-    return { techMitreIds, actors };
+interface LlmEntities { threatActors?: unknown; techniques?: unknown }
+
+/** Dynamic import — the api-side LLM helper; this feed runs inside the api process. */
+async function extractEntities(text: string): Promise<LlmEntities> {
+    // @ts-ignore — api service outside the worker rootDir, resolved at runtime
+    const { extractEntities: fn } = await import('../../../api/src/services/aiMiddleware/helpers');
+    return fn(text, { temperature: 0.1, maxTokens: 1024 });
 }
 
-// `type` (not `interface`) so it satisfies Record<string, unknown> when passed
-// to log.info — interfaces lack the implicit index signature TS needs there.
-export type IntelTtpResult = { reportsProcessed: number; ttpsAdded: number };
+const asStrings = (v: unknown): string[] => Array.isArray(v) ? v.map((x) => String(x)) : [];
+
+export type IntelTtpResult = { reportsProcessed: number; ttpsAdded: number; llmCalls: number };
 
 export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
     const gz = await buildGazetteer();
     if (gz.techByMitre.size === 0) {
         log.warn('Technique gazetteer empty (MITRE not synced?) — skipping extraction');
-        return { reportsProcessed: 0, ttpsAdded: 0 };
+        return { reportsProcessed: 0, ttpsAdded: 0, llmCalls: 0 };
     }
 
-    // Dedup baseline — every (actor, technique) we already know.
-    const stateRows = await db.execute(sql`
-        SELECT actor_id, technique_id FROM actor_ttp_state
-    `) as unknown as Array<{ actor_id: string; technique_id: string }>;
+    const stateRows = await db.execute(sql`SELECT actor_id, technique_id FROM actor_ttp_state`) as unknown as Array<{ actor_id: string; technique_id: string }>;
     const seen = new Set(stateRows.map((r) => `${r.actor_id}::${r.technique_id}`));
 
     const reports = await db.execute(sql`
@@ -111,43 +85,73 @@ export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
     `) as unknown as Array<{ id: string; source: string; url: string; title: string; summary: string | null; published_at: Date | string | null }>;
 
     let ttpsAdded = 0;
-    for (const rep of reports) {
-        const { techMitreIds, actors } = extractMatches(`${rep.title} ${rep.summary ?? ''}`, gz);
-        const detectedAt = rep.published_at ? new Date(rep.published_at) : new Date();
+    let llmCalls = 0;
+    let processed = 0;
 
+    for (const rep of reports) {
+        const text = `${rep.title}\n\n${rep.summary ?? ''}`;
+        let ents: LlmEntities;
+        try {
+            ents = await extractEntities(text);
+            llmCalls++;
+        } catch (err) {
+            const msg = (err as Error).message;
+            // No provider configured (no GEMINI/OPENROUTER key) — stop and leave
+            // the rest pending so they extract once a key is set.
+            if (/no llm provider/i.test(msg)) {
+                log.warn('LLM unavailable — leaving reports pending', { msg });
+                break;
+            }
+            // Transient per-report failure — mark error so it doesn't block the queue.
+            await db.execute(sql`UPDATE intel_reports SET extraction_status='error', updated_at=now() WHERE id=${rep.id}`);
+            continue;
+        }
+        processed++;
+
+        // Techniques: LLM ids ∪ any verbatim T-codes, validated against the catalogue.
+        const techIds = new Set<string>();
+        for (const cand of [...asStrings(ents.techniques), ...(text.toUpperCase().match(TECH_RE) ?? [])]) {
+            const id = String(cand).toUpperCase().match(TECH_RE)?.[0];
+            if (id && gz.techByMitre.has(id)) techIds.add(id);
+        }
+        // Actors: LLM names resolved against the gazetteer (name/alias).
+        const actorIds = new Set<string>();
+        for (const name of asStrings(ents.threatActors)) {
+            const id = gz.actorByTerm.get(name.trim().toLowerCase());
+            if (id) actorIds.add(id);
+        }
+
+        const detectedAt = rep.published_at ? new Date(rep.published_at) : new Date();
         const newChanges: typeof actorTtpChanges.$inferInsert[] = [];
         const newState: typeof actorTtpState.$inferInsert[] = [];
-        for (const actor of actors) {
-            for (const mid of techMitreIds) {
+        for (const actorId of actorIds) {
+            for (const mid of techIds) {
                 const tStix = gz.techByMitre.get(mid)!;
-                const key = `${actor.stixId}::${tStix}`;
+                const key = `${actorId}::${tStix}`;
                 if (seen.has(key)) continue;
                 seen.add(key);
                 newChanges.push({
-                    actorId: actor.stixId,
-                    techniqueId: tStix,
-                    changeType: 'added',
-                    detectedAt,
-                    note: JSON.stringify({ source: rep.source, url: rep.url, method: 'regex', confidence: CONFIDENCE, reportId: rep.id }),
+                    actorId, techniqueId: tStix, changeType: 'added', detectedAt,
+                    note: JSON.stringify({ source: rep.source, url: rep.url, method: 'llm', confidence: CONFIDENCE, reportId: rep.id }),
                 });
-                newState.push({ actorId: actor.stixId, techniqueId: tStix, observedAt: detectedAt });
+                newState.push({ actorId, techniqueId: tStix, observedAt: detectedAt });
             }
         }
-
         if (newChanges.length > 0) {
             await db.insert(actorTtpChanges).values(newChanges);
             await db.insert(actorTtpState).values(newState).onConflictDoNothing();
             ttpsAdded += newChanges.length;
         }
 
-        const entities = { threatActors: actors.map((a) => a.name), techniques: techMitreIds };
         await db.execute(sql`
             UPDATE intel_reports
-            SET extraction_status = 'extracted', entities = ${JSON.stringify(entities)}::jsonb, updated_at = now()
+            SET extraction_status = 'extracted',
+                entities = ${JSON.stringify({ threatActors: asStrings(ents.threatActors), techniques: [...techIds] })}::jsonb,
+                llm_provider = 'llm', updated_at = now()
             WHERE id = ${rep.id}
         `);
     }
 
-    log.info('Intel TTP extraction done', { reportsProcessed: reports.length, ttpsAdded });
-    return { reportsProcessed: reports.length, ttpsAdded };
+    log.info('Intel TTP extraction done', { reportsProcessed: processed, ttpsAdded, llmCalls });
+    return { reportsProcessed: processed, ttpsAdded, llmCalls };
 }

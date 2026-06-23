@@ -49,7 +49,7 @@ function feeds(): Array<{ key: string; url: string }> {
     }).filter((f) => f.key && f.url);
 }
 
-interface RssItem { title?: string; link?: unknown; description?: string; summary?: string; content?: string; pubDate?: string; published?: string; updated?: string }
+interface RssItem { title?: string; link?: unknown; description?: string; summary?: string; content?: string; 'content:encoded'?: unknown; pubDate?: string; published?: string; updated?: string }
 
 /** RSS link is a string; Atom link is an object (or array) with @_href. Normalise. */
 function linkOf(raw: unknown): string {
@@ -121,10 +121,11 @@ export async function syncIntelNews(): Promise<IntelNewsResult> {
             const title = stripHtml(textOf(it.title)).trim();
             const link = linkOf(it.link);
             if (!title || !link) continue;
-            // RSS: description; Atom: summary/content. Keep a bounded plaintext
-            // excerpt — enough for Phase 2 regex/LLM without storing whole pages.
-            const raw = textOf(it.description) || textOf(it.summary) || textOf(it.content);
-            const summary = stripHtml(raw).slice(0, 2000);
+            // Prefer the full post body (WordPress <content:encoded>) over the
+            // RSS intro so Phase 3 LLM extraction sees the article, not just the
+            // teaser. Bounded to 6000 chars (extractEntities' input window).
+            const raw = textOf(it['content:encoded']) || textOf(it.content) || textOf(it.description) || textOf(it.summary);
+            const summary = stripHtml(raw).slice(0, 6000);
             const dateStr = it.pubDate || it.published || it.updated;
             const published = dateStr ? new Date(dateStr) : null;
 

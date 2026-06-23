@@ -54,13 +54,34 @@ async function buildGazetteer(): Promise<Gazetteer> {
     return { techByMitre, actorByTerm };
 }
 
-interface LlmEntities { threatActors?: unknown; techniques?: unknown }
+interface Attribution { actor?: unknown; techniques?: unknown }
 
-/** Dynamic import — the api-side LLM helper; this feed runs inside the api process. */
-async function extractEntities(text: string): Promise<LlmEntities> {
+/**
+ * Purpose-built attribution extractor. The generic entity-lister returned actors
+ * and techniques in separate buckets (and rarely any technique IDs), so no
+ * (actor, technique) PAIR ever survived. Here we ask the LLM for the
+ * relationship directly and to MAP PROSE → ATT&CK IDs — which is the whole point
+ * (the reports describe TTPs in words, not codes). Dynamic import: the api-side
+ * callLLM, resolved at runtime since this feed runs inside the api process.
+ */
+async function extractAttributions(title: string, body: string): Promise<Attribution[]> {
     // @ts-ignore — api service outside the worker rootDir, resolved at runtime
-    const { extractEntities: fn } = await import('../../../api/src/services/aiMiddleware/helpers');
-    return fn(text, { temperature: 0.1, maxTokens: 1024 });
+    const { callLLM } = await import('../../../api/src/services/aiMiddleware/callLLM');
+    const prompt = `You are a CTI analyst. From the report, extract every attribution where a NAMED threat actor / APT group is described USING a technique, and map each technique to its MITRE ATT&CK ID (e.g. "spearphishing attachment" → T1566.001, "PowerShell" → T1059.001, "exploit public-facing app" → T1190). Only techniques the report says THIS actor used. Ignore vendors, products, victims, and malware-family names (those are not actors). Return JSON only:
+{"attributions":[{"actor":"<group name>","techniques":["T1566.001","T1059.001"]}]}
+If no actor-technique attribution is present, return {"attributions":[]}.
+
+TITLE: ${title}
+REPORT:
+${body.slice(0, 8000)}`;
+    const res = await callLLM(prompt, { temperature: 0.1, maxTokens: 1024, jsonMode: true });
+    try {
+        const m = res.text.match(/\{[\s\S]*\}/);
+        const obj = m ? JSON.parse(m[0]) : {};
+        return Array.isArray(obj.attributions) ? obj.attributions : [];
+    } catch {
+        return [];
+    }
 }
 
 const asStrings = (v: unknown): string[] => Array.isArray(v) ? v.map((x) => String(x)) : [];
@@ -89,10 +110,9 @@ export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
     let processed = 0;
 
     for (const rep of reports) {
-        const text = `${rep.title}\n\n${rep.summary ?? ''}`;
-        let ents: LlmEntities;
+        let attrs: Attribution[];
         try {
-            ents = await extractEntities(text);
+            attrs = await extractAttributions(rep.title, rep.summary ?? '');
             llmCalls++;
         } catch (err) {
             const msg = (err as Error).message;
@@ -108,27 +128,22 @@ export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
         }
         processed++;
 
-        // Techniques: LLM ids ∪ any verbatim T-codes, validated against the catalogue.
-        const techIds = new Set<string>();
-        for (const cand of [...asStrings(ents.techniques), ...(text.toUpperCase().match(TECH_RE) ?? [])]) {
-            const id = String(cand).toUpperCase().match(TECH_RE)?.[0];
-            if (id && gz.techByMitre.has(id)) techIds.add(id);
-        }
-        // Actors: LLM names resolved against the gazetteer (name/alias).
-        const actorIds = new Set<string>();
-        for (const name of asStrings(ents.threatActors)) {
-            const id = gz.actorByTerm.get(name.trim().toLowerCase());
-            if (id) actorIds.add(id);
-        }
-
         const detectedAt = rep.published_at ? new Date(rep.published_at) : new Date();
         const newChanges: typeof actorTtpChanges.$inferInsert[] = [];
         const newState: typeof actorTtpState.$inferInsert[] = [];
-        for (const actorId of actorIds) {
-            for (const mid of techIds) {
+        const resolved: Array<{ actor: string; techniques: string[] }> = [];
+
+        for (const a of attrs) {
+            const actorId = gz.actorByTerm.get(String(a.actor ?? '').trim().toLowerCase());
+            if (!actorId) continue; // unknown actor (or a non-actor name) — skip, don't invent one
+            const techMitre: string[] = [];
+            for (const t of asStrings(a.techniques)) {
+                const mid = String(t).toUpperCase().match(TECH_RE)?.[0];
+                if (!mid || !gz.techByMitre.has(mid)) continue; // validate every id against the catalogue
+                techMitre.push(mid);
                 const tStix = gz.techByMitre.get(mid)!;
                 const key = `${actorId}::${tStix}`;
-                if (seen.has(key)) continue;
+                if (seen.has(key)) continue; // already known (MITRE or earlier report) — dedup
                 seen.add(key);
                 newChanges.push({
                     actorId, techniqueId: tStix, changeType: 'added', detectedAt,
@@ -136,7 +151,9 @@ export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
                 });
                 newState.push({ actorId, techniqueId: tStix, observedAt: detectedAt });
             }
+            if (techMitre.length) resolved.push({ actor: String(a.actor), techniques: techMitre });
         }
+
         if (newChanges.length > 0) {
             await db.insert(actorTtpChanges).values(newChanges);
             await db.insert(actorTtpState).values(newState).onConflictDoNothing();
@@ -146,7 +163,7 @@ export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
         await db.execute(sql`
             UPDATE intel_reports
             SET extraction_status = 'extracted',
-                entities = ${JSON.stringify({ threatActors: asStrings(ents.threatActors), techniques: [...techIds] })}::jsonb,
+                entities = ${JSON.stringify({ attributions: resolved })}::jsonb,
                 llm_provider = 'llm', updated_at = now()
             WHERE id = ${rep.id}
         `);

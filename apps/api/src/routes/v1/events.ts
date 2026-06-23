@@ -384,7 +384,9 @@ function mapAiIncident(r: AiIncidentRow): PlatformEvent {
         title: truncate(`AI incident: ${r.title}`, 80) ?? `AI incident #${r.incident_id}`,
         meta: devs.slice(0, 2).join(' · ') || 'incidentdatabase.ai',
         timestamp: r.incident_date ? iso(r.incident_date) : new Date().toISOString(),
-        href: '/ai-incidents',
+        // Anchor-scroll to this incident in the "Latest" list (when present)
+        // instead of the bare page.
+        href: `/ai-incidents#ai-${encodeURIComponent(r.incident_id)}`,
     };
 }
 
@@ -399,7 +401,9 @@ function mapWallet(r: WalletRow): PlatformEvent {
             tags.slice(0, 2).join(' · ') || 'OFAC SDN',
         ].filter(Boolean).join(' · '),
         timestamp: iso(r.created_at),
-        href: '/onchain',
+        // Deep-link to this wallet's attribution (the page auto-runs the lookup)
+        // rather than dropping the user on the unfiltered on-chain page.
+        href: `/onchain?address=${encodeURIComponent(r.address)}&chain=${encodeURIComponent(r.chain || 'ethereum')}`,
     };
 }
 
@@ -411,7 +415,8 @@ function mapTelco(r: FraudSchemeRow): PlatformEvent {
         title: `Telco fraud scheme: ${r.name}`,
         meta: [r.scheme_type, cats.slice(0, 2).join(' · ')].filter(Boolean).join(' · ') || '5G signaling fraud',
         timestamp: iso(r.created_at),
-        href: '/telco',
+        // Scroll to the fraud-schemes section rather than the page top.
+        href: '/telco#schemes',
     };
 }
 

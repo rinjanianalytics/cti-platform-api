@@ -86,7 +86,9 @@ export function extractMatches(
     return { techMitreIds, actors };
 }
 
-export interface IntelTtpResult { reportsProcessed: number; ttpsAdded: number }
+// `type` (not `interface`) so it satisfies Record<string, unknown> when passed
+// to log.info — interfaces lack the implicit index signature TS needs there.
+export type IntelTtpResult = { reportsProcessed: number; ttpsAdded: number };
 
 export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
     const gz = await buildGazetteer();

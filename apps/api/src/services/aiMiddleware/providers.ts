@@ -43,7 +43,10 @@ export async function callGemini(
         throw new Error(`Gemini ${res.status}: ${errText.slice(0, 200)}`);
     }
 
-    const data = await res.json();
+    const data = await res.json() as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+    };
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const tokensUsed = (data.usageMetadata?.promptTokenCount || 0) +
         (data.usageMetadata?.candidatesTokenCount || 0);
@@ -88,7 +91,10 @@ export async function callOpenRouter(
         throw new Error(`OpenRouter ${res.status}: ${errText.slice(0, 200)}`);
     }
 
-    const data = await res.json();
+    const data = await res.json() as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { total_tokens?: number };
+    };
     const text = data.choices?.[0]?.message?.content || '';
     const tokensUsed = data.usage?.total_tokens || 0;
 
@@ -127,7 +133,7 @@ export async function callOllama(
         throw new Error(`Ollama ${res.status}`);
     }
 
-    const data = await res.json();
+    const data = await res.json() as { response?: string };
     return {
         text: data.response || '',
         provider: 'ollama',

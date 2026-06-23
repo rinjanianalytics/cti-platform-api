@@ -63,8 +63,24 @@ function linkOf(raw: unknown): string {
     return '';
 }
 
+// We parse with processEntities:false (avoids fast-xml-parser's entity-expansion
+// DoS guard tripping on CISA's all.xml), so decode the handful of named/numeric
+// entities ourselves.
+function decodeEntities(s: string): string {
+    return s
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"').replace(/&#0?39;|&#x27;/gi, "'").replace(/&nbsp;/g, ' ')
+        .replace(/&#(\d+);/g, (_m, n) => { try { return String.fromCodePoint(Number(n)); } catch { return ' '; } })
+        .replace(/&#x([0-9a-f]+);/gi, (_m, h) => { try { return String.fromCodePoint(parseInt(h, 16)); } catch { return ' '; } });
+}
+
 function stripHtml(s: string): string {
-    return s.replace(/<[^>]*>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+    return decodeEntities(s.replace(/<[^>]*>/g, ' '))
+        // Strip NUL + control bytes — Postgres text columns reject them
+        // ("invalid byte sequence"/"unterminated"), which fails the whole insert.
+        // eslint-disable-next-line no-control-regex
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(/\s+/g, ' ').trim();
 }
 
 function textOf(v: unknown): string {
@@ -77,7 +93,10 @@ async function fetchFeed(url: string): Promise<RssItem[]> {
     const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' } });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
     const xml = await res.text();
-    const parsed = new XMLParser({ ignoreAttributes: false, trimValues: true }).parse(xml);
+    // processEntities:false — don't expand XML entities (security + sidesteps the
+    // "Entity expansion limit exceeded" abort on CISA's feed). decodeEntities()
+    // handles the &amp;/&#NN; we care about in titles/summaries.
+    const parsed = new XMLParser({ ignoreAttributes: false, trimValues: true, processEntities: false }).parse(xml);
     const channel = parsed?.rss?.channel ?? parsed?.feed ?? {};
     const items = channel.item ?? channel.entry ?? [];
     return Array.isArray(items) ? items : [items];

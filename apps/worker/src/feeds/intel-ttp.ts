@@ -82,7 +82,7 @@ async function buildGazetteer(): Promise<Gazetteer> {
     return { techByMitre, actorByTerm };
 }
 
-interface Attribution { actor?: unknown; techniques?: unknown }
+interface Attribution { actor?: unknown; aliases?: unknown; techniques?: unknown }
 
 /**
  * Purpose-built attribution extractor. The generic entity-lister returned actors
@@ -95,8 +95,8 @@ interface Attribution { actor?: unknown; techniques?: unknown }
 async function extractAttributions(title: string, body: string): Promise<Attribution[]> {
     // @ts-ignore — api service outside the worker rootDir, resolved at runtime
     const { callLLM } = await import('../../../api/src/services/aiMiddleware/callLLM');
-    const prompt = `You are a CTI analyst. From the report, extract every attribution where a NAMED threat actor is described USING a technique, and map each technique to its MITRE ATT&CK ID (e.g. "spearphishing attachment" → T1566.001, "PowerShell" → T1059.001, "exploit public-facing app" → T1190). A threat actor is a tracked adversary GROUP / APT / intrusion-set / eCrime crew (e.g. "MuddyWater", "Lunar Spider", "KongTuke"). Do NOT treat tools, scanners, malware or ransomware families, botnets, loaders, vulnerabilities, products, vendors, or victims as actors. Only techniques the report says THIS actor used. Return JSON only:
-{"attributions":[{"actor":"<group name>","techniques":["T1566.001","T1059.001"]}]}
+    const prompt = `You are a CTI analyst. From the report, extract every attribution where a NAMED threat actor is described USING a technique, and map each technique to its MITRE ATT&CK ID (e.g. "spearphishing attachment" → T1566.001, "PowerShell" → T1059.001, "exploit public-facing app" → T1190). A threat actor is a tracked adversary GROUP / APT / intrusion-set / eCrime crew (e.g. "MuddyWater", "Lunar Spider", "KongTuke"). Do NOT treat tools, scanners, malware or ransomware families, botnets, loaders, vulnerabilities, products, vendors, or victims as actors. Only techniques the report says THIS actor used. For "aliases", list this group's OTHER well-known names across vendors — ALWAYS include its MITRE ATT&CK name if you know it (e.g. for "Cloaked Ursa"/"Midnight Blizzard" include "APT29"; for "Forest Blizzard"/"Fighting Ursa" include "APT28"); use [] if none. Return JSON only:
+{"attributions":[{"actor":"<group name>","aliases":["<other names, incl MITRE name>"],"techniques":["T1566.001","T1059.001"]}]}
 If no actor-technique attribution is present, return {"attributions":[]}.
 
 TITLE: ${title}
@@ -142,28 +142,49 @@ function isLikelyActor(name: string): boolean {
     return true;
 }
 
+const isLlmActorId = (id: string): boolean => id.startsWith('intrusion-set--llm-');
+
 /**
- * Resolve an LLM actor name to a real_stix_id — via MITRE/prior entries (with a
- * suffix-normalized retry), else create a flagged emerging-actor entry. Caches
- * into the gazetteer so repeats within a run reuse the same id. Returns null
- * when unresolved and not creatable (disabled or failed the actor gate).
+ * Resolve an LLM actor (name + LLM-supplied aliases) to a real_stix_id.
+ *  - Builds candidate terms from the name, suffix variants, and every alias.
+ *  - PREFERS a MITRE entry over a synthetic emerging one — this is the vendor
+ *    dedup: "Cloaked Ursa" with alias "APT29" folds into MITRE APT29 rather than
+ *    spawning a duplicate actor.
+ *  - Otherwise creates a flagged emerging entry, STORING the aliases so the same
+ *    group resolves consistently under any of its vendor names next time.
+ * Returns null when unresolved and not creatable (disabled / failed actor gate).
  */
 async function resolveOrCreateActor(
-    rawName: string, gz: Gazetteer, ctx: { source: string; url: string; detectedAt: Date },
+    rawName: string, rawAliases: string[], gz: Gazetteer, ctx: { source: string; url: string; detectedAt: Date },
 ): Promise<{ id: string; created: boolean } | null> {
     const name = String(rawName ?? '').trim();
     if (!name) return null;
-    for (const v of nameVariants(name)) {
-        const id = gz.actorByTerm.get(v.toLowerCase());
-        if (id) return { id, created: false };
+    const aliasNames = [...new Set(rawAliases.map((a) => String(a ?? '').trim()).filter(Boolean))].slice(0, 8);
+
+    // Candidate terms: name + every alias, each with its suffix variant.
+    const terms = [...new Set([name, ...aliasNames].flatMap(nameVariants).map((t) => t.toLowerCase()))];
+    // Look them all up; a real MITRE id wins over a synthetic emerging one.
+    let mitreId: string | undefined;
+    let anyId: string | undefined;
+    for (const t of terms) {
+        const id = gz.actorByTerm.get(t);
+        if (!id) continue;
+        anyId ??= id;
+        if (!isLlmActorId(id)) { mitreId = id; break; }
     }
+    const resolvedId = mitreId ?? anyId;
+    if (resolvedId) {
+        for (const t of terms) if (!gz.actorByTerm.has(t)) gz.actorByTerm.set(t, resolvedId); // intra-run cache
+        return { id: resolvedId, created: false };
+    }
+
     if (!CREATE_EMERGING || !isLikelyActor(name)) return null;
     const id = `intrusion-set--llm-${slugify(name)}`;
     await db.insert(threatActors).values({
         stixId: id,
         realStixId: id,                          // changelog LEFT JOINs threat_actors.real_stix_id
         name,
-        aliases: [],
+        aliases: aliasNames,                     // so any vendor name folds back to this entry next run
         labels: ['llm-extracted', 'unverified'], // provenance — filterable/purgeable
         confidence: 'low',
         createdByRef: 'feed:intel-ttp',
@@ -171,7 +192,7 @@ async function resolveOrCreateActor(
         externalReferences: [{ source_name: ctx.source, url: ctx.url }],
         firstSeen: ctx.detectedAt,
     }).onConflictDoNothing({ target: threatActors.stixId });
-    gz.actorByTerm.set(name.toLowerCase(), id);
+    for (const t of terms) gz.actorByTerm.set(t, id);
     return { id, created: true };
 }
 
@@ -242,7 +263,7 @@ export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
         const resolved: Array<{ actor: string; techniques: string[] }> = [];
 
         for (const a of attrs) {
-            const actor = await resolveOrCreateActor(String(a.actor ?? ''), gz, { source: rep.source, url: rep.url, detectedAt });
+            const actor = await resolveOrCreateActor(String(a.actor ?? ''), asStrings(a.aliases), gz, { source: rep.source, url: rep.url, detectedAt });
             if (!actor) continue; // unresolved + failed the actor gate (tool/junk) — skip
             const actorId = actor.id;
             if (actor.created) createdActors.add(actorId);

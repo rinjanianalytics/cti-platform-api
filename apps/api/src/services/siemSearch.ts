@@ -4,7 +4,8 @@
  *
  * A thin, query-validated, read-only `_search` client against Elastic /
  * OpenSearch (both speak the same `_search` API). BYO-endpoint — no SIEM is
- * bundled; the operator sets SIEM_URL (+ optional SIEM_INDEX, SIEM_API_KEY).
+ * bundled; the operator sets SIEM_URL (+ optional SIEM_INDEX, and either
+ * SIEM_API_KEY for Elastic or SIEM_USER + SIEM_PASSWORD for OpenSearch/Wazuh).
  * Until SIEM_URL is set the tool is an inert placeholder that fails gracefully,
  * so it ships now and lights up the moment a SIEM is deployed.
  *
@@ -64,8 +65,14 @@ export async function siemSearch(opts: {
         sort: [{ '@timestamp': { order: 'desc', unmapped_type: 'date' } }],
     };
 
+    // Auth: ApiKey (Elastic) takes priority; else Basic (OpenSearch / Wazuh
+    // indexer, which doesn't issue Elastic-style API keys — admin:password).
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (process.env.SIEM_API_KEY) headers.Authorization = `ApiKey ${process.env.SIEM_API_KEY}`;
+    if (process.env.SIEM_API_KEY) {
+        headers.Authorization = `ApiKey ${process.env.SIEM_API_KEY}`;
+    } else if (process.env.SIEM_USER && process.env.SIEM_PASSWORD) {
+        headers.Authorization = `Basic ${Buffer.from(`${process.env.SIEM_USER}:${process.env.SIEM_PASSWORD}`).toString('base64')}`;
+    }
 
     const url = `${base.replace(/\/$/, '')}/${encodeURIComponent(index)}/_search`;
     const res = await fetch(url, {

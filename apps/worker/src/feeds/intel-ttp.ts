@@ -23,6 +23,34 @@ const log = createLogger('IntelTTP');
 const MAX_REPORTS_PER_RUN = 30;   // one LLM call each — bound cost/latency; backlog clears over hourly runs.
 const CONFIDENCE = 0.5;           // LLM prose→TTP — medium; provenance in note for review.
 const TECH_RE = /\bT\d{4}(?:\.\d{3})?\b/g;
+const LLM_INPUT_CHARS = 16000;    // the attribution often lives in the article's back half (ATT&CK table); 8k cut it.
+const MIN_BODY_CHARS = 800;       // below this the stored body is an RSS teaser — fetch the full article.
+const FETCH_TIMEOUT_MS = 15000;
+const UA = process.env.INTEL_NEWS_UA
+    ?? 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+/**
+ * Fetch + flatten an article's full text. Several high-signal sources (The DFIR
+ * Report especially) ship only a ~500-char teaser in RSS while the actual
+ * actor→technique narrative — and the ATT&CK table — lives on the page. Strip
+ * script/style first (their inline JS otherwise survives tag removal and
+ * pollutes the prompt), prefer <article>, and bound the result.
+ */
+async function fetchArticleText(url: string): Promise<string> {
+    const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const html = await res.text();
+    const main = html.match(/<article[\s\S]*?<\/article>/i)?.[0] ?? html;
+    return main
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#0?39;|&#x27;/gi, "'").replace(/&nbsp;/g, ' ')
+        // eslint-disable-next-line no-control-regex
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(/\s+/g, ' ').trim()
+        .slice(0, LLM_INPUT_CHARS);
+}
 
 interface Gazetteer {
     techByMitre: Map<string, string>;   // 'T1059' → attack-pattern--…  (validates LLM technique ids)
@@ -73,7 +101,7 @@ If no actor-technique attribution is present, return {"attributions":[]}.
 
 TITLE: ${title}
 REPORT:
-${body.slice(0, 8000)}`;
+${body.slice(0, LLM_INPUT_CHARS)}`;
     const res = await callLLM(prompt, { temperature: 0.1, maxTokens: 1024, jsonMode: true });
     try {
         const m = res.text.match(/\{[\s\S]*\}/);
@@ -98,10 +126,15 @@ export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
     const stateRows = await db.execute(sql`SELECT actor_id, technique_id FROM actor_ttp_state`) as unknown as Array<{ actor_id: string; technique_id: string }>;
     const seen = new Set(stateRows.map((r) => `${r.actor_id}::${r.technique_id}`));
 
+    // Spend the per-run LLM budget on the sources that actually carry actor→
+    // technique narratives (DFIR intrusion analyses, vendor deep-dives) before
+    // the thehackernews teaser firehose — otherwise recency alone fills every
+    // run with short news items that yield nothing.
     const reports = await db.execute(sql`
         SELECT id, source, url, title, summary, published_at FROM intel_reports
         WHERE extraction_status = 'pending'
-        ORDER BY published_at DESC NULLS LAST
+        ORDER BY (source IN ('dfir','talos','unit42','securelist','redcanary','mssecurity')) DESC,
+                 published_at DESC NULLS LAST
         LIMIT ${MAX_REPORTS_PER_RUN}
     `) as unknown as Array<{ id: string; source: string; url: string; title: string; summary: string | null; published_at: Date | string | null }>;
 
@@ -110,9 +143,22 @@ export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
     let processed = 0;
 
     for (const rep of reports) {
+        // Several high-signal feeds (DFIR especially) store only a ~500-char RSS
+        // teaser. Pull the full article so the LLM sees the intrusion narrative +
+        // ATT&CK table, not the intro. Best-effort: fall back to the teaser.
+        let body = rep.summary ?? '';
+        if (body.length < MIN_BODY_CHARS && rep.url) {
+            try {
+                const full = await fetchArticleText(rep.url);
+                if (full.length > body.length) body = full;
+            } catch (err) {
+                log.debug?.('full-article fetch failed', { url: rep.url, msg: (err as Error).message });
+            }
+        }
+
         let attrs: Attribution[];
         try {
-            attrs = await extractAttributions(rep.title, rep.summary ?? '');
+            attrs = await extractAttributions(rep.title, body);
             llmCalls++;
         } catch (err) {
             const msg = (err as Error).message;

@@ -15,7 +15,7 @@
  */
 
 import { db, sql } from '@rinjani/db';
-import { actorTtpChanges, actorTtpState } from '@rinjani/db/schema';
+import { actorTtpChanges, actorTtpState, threatActors } from '@rinjani/db/schema';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('IntelTTP');
@@ -95,7 +95,7 @@ interface Attribution { actor?: unknown; techniques?: unknown }
 async function extractAttributions(title: string, body: string): Promise<Attribution[]> {
     // @ts-ignore — api service outside the worker rootDir, resolved at runtime
     const { callLLM } = await import('../../../api/src/services/aiMiddleware/callLLM');
-    const prompt = `You are a CTI analyst. From the report, extract every attribution where a NAMED threat actor / APT group is described USING a technique, and map each technique to its MITRE ATT&CK ID (e.g. "spearphishing attachment" → T1566.001, "PowerShell" → T1059.001, "exploit public-facing app" → T1190). Only techniques the report says THIS actor used. Ignore vendors, products, victims, and malware-family names (those are not actors). Return JSON only:
+    const prompt = `You are a CTI analyst. From the report, extract every attribution where a NAMED threat actor is described USING a technique, and map each technique to its MITRE ATT&CK ID (e.g. "spearphishing attachment" → T1566.001, "PowerShell" → T1059.001, "exploit public-facing app" → T1190). A threat actor is a tracked adversary GROUP / APT / intrusion-set / eCrime crew (e.g. "MuddyWater", "Lunar Spider", "KongTuke"). Do NOT treat tools, scanners, malware or ransomware families, botnets, loaders, vulnerabilities, products, vendors, or victims as actors. Only techniques the report says THIS actor used. Return JSON only:
 {"attributions":[{"actor":"<group name>","techniques":["T1566.001","T1059.001"]}]}
 If no actor-technique attribution is present, return {"attributions":[]}.
 
@@ -114,13 +114,74 @@ ${body.slice(0, LLM_INPUT_CHARS)}`;
 
 const asStrings = (v: unknown): string[] => Array.isArray(v) ? v.map((x) => String(x)) : [];
 
-export type IntelTtpResult = { reportsProcessed: number; ttpsAdded: number; llmCalls: number };
+// --- Emerging-actor resolution / creation ----------------------------------
+// Most fresh CTI names emerging groups MITRE doesn't track (KongTuke, ExCone,
+// Awaken Likho…). To record their TTPs we create a provenance-flagged
+// threat_actors entry on demand — gated so tools/malware/junk don't leak in.
+const CREATE_EMERGING = process.env.INTEL_TTP_CREATE_ACTORS !== '0';
+// Words that signal a tool/malware/campaign-codename rather than an actor group.
+const NON_ACTOR_RE = /\b(scanner|tool(kit)?|malware|ransomware|botnet|loader|stealer|infostealer|rat|backdoor|trojan|worm|framework|exploit|payload|dropper|miner|webshell|builder|cryptor|packer|wiper|keylogger|c2|cve|vulnerability)\b/i;
+const GENERIC_ACTOR_RE = /^(the\s+)?(threat[- ]?actors?|attackers?|adversar(y|ies)|unknown|unidentified|unattributed|unnamed|various|multiple|n\/?a)$/i;
+
+const slugify = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+
+// MITRE usually tracks a group under the bare name; reports append " APT"/"Group".
+function nameVariants(name: string): string[] {
+    const base = name.trim();
+    const stripped = base.replace(/\s+(apt|group|gang|team|crew|collective)$/i, '').trim();
+    return stripped && stripped !== base ? [base, stripped] : [base];
+}
+
+// Gate for creating a NEW actor — mirror the gazetteer's indexing threshold so a
+// created actor is always re-findable next run, and exclude obvious non-actors.
+function isLikelyActor(name: string): boolean {
+    const n = name.trim();
+    if (!((n.length >= 4 && /\d/.test(n)) || n.length >= 5)) return false;
+    if (!/[a-z]/i.test(n)) return false;
+    if (NON_ACTOR_RE.test(n) || GENERIC_ACTOR_RE.test(n)) return false;
+    return true;
+}
+
+/**
+ * Resolve an LLM actor name to a real_stix_id — via MITRE/prior entries (with a
+ * suffix-normalized retry), else create a flagged emerging-actor entry. Caches
+ * into the gazetteer so repeats within a run reuse the same id. Returns null
+ * when unresolved and not creatable (disabled or failed the actor gate).
+ */
+async function resolveOrCreateActor(
+    rawName: string, gz: Gazetteer, ctx: { source: string; url: string; detectedAt: Date },
+): Promise<{ id: string; created: boolean } | null> {
+    const name = String(rawName ?? '').trim();
+    if (!name) return null;
+    for (const v of nameVariants(name)) {
+        const id = gz.actorByTerm.get(v.toLowerCase());
+        if (id) return { id, created: false };
+    }
+    if (!CREATE_EMERGING || !isLikelyActor(name)) return null;
+    const id = `intrusion-set--llm-${slugify(name)}`;
+    await db.insert(threatActors).values({
+        stixId: id,
+        realStixId: id,                          // changelog LEFT JOINs threat_actors.real_stix_id
+        name,
+        aliases: [],
+        labels: ['llm-extracted', 'unverified'], // provenance — filterable/purgeable
+        confidence: 'low',
+        createdByRef: 'feed:intel-ttp',
+        description: `Emerging actor auto-created from threat-intel narrative extraction (source: ${ctx.source}).`,
+        externalReferences: [{ source_name: ctx.source, url: ctx.url }],
+        firstSeen: ctx.detectedAt,
+    }).onConflictDoNothing({ target: threatActors.stixId });
+    gz.actorByTerm.set(name.toLowerCase(), id);
+    return { id, created: true };
+}
+
+export type IntelTtpResult = { reportsProcessed: number; ttpsAdded: number; llmCalls: number; actorsCreated: number };
 
 export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
     const gz = await buildGazetteer();
     if (gz.techByMitre.size === 0) {
         log.warn('Technique gazetteer empty (MITRE not synced?) — skipping extraction');
-        return { reportsProcessed: 0, ttpsAdded: 0, llmCalls: 0 };
+        return { reportsProcessed: 0, ttpsAdded: 0, llmCalls: 0, actorsCreated: 0 };
     }
 
     const stateRows = await db.execute(sql`SELECT actor_id, technique_id FROM actor_ttp_state`) as unknown as Array<{ actor_id: string; technique_id: string }>;
@@ -141,6 +202,7 @@ export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
     let ttpsAdded = 0;
     let llmCalls = 0;
     let processed = 0;
+    const createdActors = new Set<string>();
 
     for (const rep of reports) {
         // Several high-signal feeds (DFIR especially) store only a ~500-char RSS
@@ -180,8 +242,10 @@ export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
         const resolved: Array<{ actor: string; techniques: string[] }> = [];
 
         for (const a of attrs) {
-            const actorId = gz.actorByTerm.get(String(a.actor ?? '').trim().toLowerCase());
-            if (!actorId) continue; // unknown actor (or a non-actor name) — skip, don't invent one
+            const actor = await resolveOrCreateActor(String(a.actor ?? ''), gz, { source: rep.source, url: rep.url, detectedAt });
+            if (!actor) continue; // unresolved + failed the actor gate (tool/junk) — skip
+            const actorId = actor.id;
+            if (actor.created) createdActors.add(actorId);
             const techMitre: string[] = [];
             for (const t of asStrings(a.techniques)) {
                 const mid = String(t).toUpperCase().match(TECH_RE)?.[0];
@@ -215,6 +279,6 @@ export async function runIntelTtpExtraction(): Promise<IntelTtpResult> {
         `);
     }
 
-    log.info('Intel TTP extraction done', { reportsProcessed: processed, ttpsAdded, llmCalls });
-    return { reportsProcessed: processed, ttpsAdded, llmCalls };
+    log.info('Intel TTP extraction done', { reportsProcessed: processed, ttpsAdded, llmCalls, actorsCreated: createdActors.size });
+    return { reportsProcessed: processed, ttpsAdded, llmCalls, actorsCreated: createdActors.size };
 }

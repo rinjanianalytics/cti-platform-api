@@ -20,6 +20,7 @@ import { db } from '@rinjani/db';
 import { intelReports } from '@rinjani/db/schema';
 import type { NewIntelReport } from '@rinjani/db/schema';
 import { createLogger } from '../lib/logger';
+import { runIntelTtpExtraction } from './intel-ttp';
 
 const log = createLogger('IntelNews');
 
@@ -133,6 +134,16 @@ export async function syncIntelNews(): Promise<IntelNewsResult> {
             result.failed++;
             if (result.errors.length < 8) result.errors.push(`upsert ${row.url}: ${(err as Error).message}`);
         }
+    }
+
+    // Phase 2 — pull actor→technique TTPs out of the freshly-collected (and any
+    // backlog) pending reports into actor_ttp_changes. Non-fatal: a collection
+    // run still succeeds even if extraction hiccups.
+    try {
+        const ttp = await runIntelTtpExtraction();
+        log.info('TTP extraction', ttp);
+    } catch (err) {
+        result.errors.push(`ttp-extract: ${(err as Error).message}`);
     }
 
     log.info('Intel news sync done', { processed: result.processed, failed: result.failed });

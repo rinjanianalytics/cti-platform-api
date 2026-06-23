@@ -148,7 +148,21 @@ router.get('/vulnerabilities/:cveId', async (c) => {
     const result = await opensearch.getById(lookupId, 'vulnerability');
 
     if (!result.item) {
-        throw new NotFoundError('CVE', cveId);
+        // OpenSearch lags Postgres ingestion — recent CVEs (e.g. current-year
+        // ids) live in the vulnerabilities table but aren't indexed yet. The
+        // events feed and the list endpoint both read PG, so without this
+        // fallback the detail page 404'd on CVEs surfaced everywhere else
+        // ("data not found" from a working link). Fall back to the source of
+        // truth before giving up.
+        const pgRows = await db.select().from(vulnerabilities)
+            .where(eq(vulnerabilities.cveId, lookupId.toUpperCase())).limit(1);
+        if (pgRows.length === 0) {
+            throw new NotFoundError('CVE', cveId);
+        }
+        return c.json({
+            success: true,
+            data: { ...toVulnDTO(pgRows[0] as unknown as Record<string, unknown>), rawData: null },
+        });
     }
 
     const item = result.item;

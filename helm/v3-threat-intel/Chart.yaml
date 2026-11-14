@@ -2,7 +2,7 @@ apiVersion: v2
 name: v3-threat-intel
 description: V3 Threat Intelligence API Helm Chart
 type: application
-version: 1.0.0
+version: 2.0.0
 appVersion: "1.0.0"
 
 keywords:
@@ -17,8 +17,8 @@ sources:
   - https://github.com/rinjanianalytics/cti-platform-api
 
 maintainers:
-  - name: RinjaniAnalytics Team
-    email: support@rinjanianalytics.io
+  - name: Rinjani Analytics
+    url: https://github.com/rinjanianalytics
 
 dependencies:
   - name: postgresql

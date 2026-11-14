@@ -118,7 +118,7 @@ flowchart LR
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Runtime** | Node.js 20 + TypeScript 5 | Server runtime |
+| **Runtime** | Node.js 22 + TypeScript 5 | Server runtime |
 | **Web Framework** | Hono | HTTP routing, middleware |
 | **Frontend** | Next.js 14 + React | Dashboard SSR/SSG |
 | **Primary DB** | PostgreSQL (Drizzle ORM) | Structured data, relations |

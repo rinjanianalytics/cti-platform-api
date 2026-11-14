@@ -16,6 +16,8 @@ _(Add entries here as work lands on `master`. Cut a new dated section when taggi
   [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
 
 ### Changed
+- **Node 22**: the Docker image, CI and the `engines` floor move from
+  Node 20 (past its end of life) to Node 22.
 - `VALIDATION_ERROR` responses: the `details` array now carries zod 4
   issue objects. Some issue codes and default messages differ from
   zod 3. Status codes and `error.code` are unchanged.

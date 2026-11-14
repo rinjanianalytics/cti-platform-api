@@ -5,7 +5,7 @@
 # The monorepo uses noEmit:true so tsc only type-checks, tsx runs TS at runtime.
 # Uses Debian-slim (not Alpine) because onnxruntime requires glibc.
 
-FROM node:20-slim
+FROM node:22-slim
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@8 --activate

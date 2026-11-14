@@ -391,5 +391,5 @@ server, and a real OTLP collector.
 ## What to do post-merge
 
 - Rebuild and redeploy the API image. No migration is involved.
-- Node 20 is past its end of life. Moving the image and CI to Node 22
-  would unblock `graphql-yoga` 6.
+- Node 20 is past its end of life. The image and CI moved to Node 22
+  in a follow-up change, which unblocks `graphql-yoga` 6.

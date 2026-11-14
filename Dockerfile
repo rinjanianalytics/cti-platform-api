@@ -8,7 +8,7 @@
 # Uses tsx runtime (noEmit:true monorepo — no tsc build step needed).
 # Debian-slim (not Alpine) because onnxruntime requires glibc.
 
-FROM node:20-slim
+FROM node:22-slim
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@8 --activate

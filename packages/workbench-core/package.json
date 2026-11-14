@@ -37,7 +37,7 @@
     "@xyflow/react": "^12.10.1",
     "dagre": "^0.8.5",
     "framer-motion": "^12.38.0",
-    "hono": "^4.12.23",
+    "hono": "^4.13.16",
     "lru-cache": "^11.2.7"
   },
   "devDependencies": {
@@ -52,7 +52,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tailwindcss/postcss": "^4.2.2",
     "@tanstack/react-query": "^5.95.2",
-    "@tanstack/react-router": "^1.168.4",
+    "@tanstack/react-router": "^1.170.46",
     "@types/dagre": "^0.7.54",
     "@types/node": "^22.10.2",
     "@types/react": "^19.2.14",
@@ -69,15 +69,15 @@
     "postcss": "^8.5.8",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "react-router-dom": "^7.13.2",
+    "react-router-dom": "^7.18.2",
     "recharts": "^2.13.3",
     "tailwind-merge": "^2.5.5",
     "tailwindcss": "^4.2.2",
     "tailwindcss-animate": "^1.0.7",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vite": "^6.0.3",
-    "zod": "^3.23.8"
+    "vite": "^6.4.4",
+    "zod": "^4.6.6"
   },
   "peerDependencies": {
     "bullmq": ">=5.0.0",

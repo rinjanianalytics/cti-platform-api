@@ -131,7 +131,7 @@ export const CreateAlertSchema = z.object({
     title: z.string().min(1, 'title is required').max(500),
     message: z.string().min(1, 'message is required').max(5000),
     source: z.string().max(200).optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type CreateAlert = z.infer<typeof CreateAlertSchema>;
 
@@ -140,14 +140,14 @@ export const UpdateAlertSchema = z.object({
     severity: z.enum(['critical', 'high', 'medium', 'low', 'info']).optional(),
     title: z.string().min(1).max(500).optional(),
     message: z.string().min(1).max(5000).optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     read: z.boolean().optional(),
 });
 export type UpdateAlert = z.infer<typeof UpdateAlertSchema>;
 
 /** POST /v1/alerts/acknowledge — bulk acknowledge */
 export const BulkAckSchema = z.object({
-    ids: z.array(z.string().uuid()).min(1, 'At least one alert ID is required').max(500),
+    ids: z.array(z.string().guid()).min(1, 'At least one alert ID is required').max(500),
 });
 export type BulkAck = z.infer<typeof BulkAckSchema>;
 
@@ -194,7 +194,7 @@ export const AddServiceSchema = z.object({
         label: z.string().min(1),
         secret: z.boolean().optional(),
     })).min(1, 'At least one envVar required'),
-    values: z.record(z.string()).optional(),
+    values: z.record(z.string(), z.string()).optional(),
 });
 export type AddService = z.infer<typeof AddServiceSchema>;
 
@@ -211,7 +211,7 @@ export const CreateTenantSchema = z.object({
     name: z.string().min(1, 'name is required').max(200),
     slug: z.string().min(1, 'slug is required').max(100).regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens'),
     tier: z.enum(['free', 'pro', 'enterprise']).default('free'),
-    config: z.record(z.unknown()).optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
 });
 export type CreateTenant = z.infer<typeof CreateTenantSchema>;
 
@@ -269,7 +269,7 @@ export const ManualAlertSchema = z.object({
     severity: z.enum(['critical', 'high', 'medium', 'low']),
     title: z.string().min(1, 'title is required').max(500),
     message: z.string().min(1, 'message is required').max(5000),
-    data: z.record(z.unknown()).optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
 });
 export type ManualAlert = z.infer<typeof ManualAlertSchema>;
 
@@ -292,7 +292,7 @@ const NotificationRuleSchema = z.object({
     match: z.object({
         severityIn: z.array(SEVERITY_ENUM).optional(),
         typeIn: z.array(NOTIF_TYPE_ENUM).optional(),
-        requireData: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+        requireData: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
     }),
     channels: z.array(z.object({
         channel: CHANNEL_KIND_ENUM,
@@ -306,7 +306,7 @@ const NotificationPayloadShapeSchema = z.object({
     severity: SEVERITY_ENUM,
     title: z.string().min(1).max(500),
     message: z.string().min(1).max(5000),
-    data: z.record(z.unknown()).optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
 });
 
 /** POST /notifications/evaluate-rules and /notifications/dispatch */
@@ -320,10 +320,10 @@ export type EvaluateRules = z.infer<typeof EvaluateRulesSchema>;
 
 const PlaybookActionSchema = z.object({
     type: z.enum(['enrich', 'notify', 'alert', 'tag', 'warninglist_check', 'sandbox_trigger']),
-    config: z.record(z.unknown()),
+    config: z.record(z.string(), z.unknown()),
     // Phase 4 #3 — per-step guards. All optional; backwards-compatible with
     // legacy rows that omit them.
-    if: z.record(z.unknown()).optional(),
+    if: z.record(z.string(), z.unknown()).optional(),
     continueOnError: z.boolean().optional(),
     label: z.string().max(200).optional(),
 });
@@ -333,7 +333,7 @@ export const CreatePlaybookSchema = z.object({
     name: z.string().min(1, 'name is required').max(200),
     description: z.string().max(2000).optional(),
     triggerEvent: z.string().min(1, 'triggerEvent is required').max(200),
-    conditions: z.record(z.unknown()).optional(),
+    conditions: z.record(z.string(), z.unknown()).optional(),
     actions: z.array(PlaybookActionSchema).min(1, 'At least one action is required'),
 });
 export type CreatePlaybook = z.infer<typeof CreatePlaybookSchema>;
@@ -343,7 +343,7 @@ export const UpdatePlaybookSchema = z.object({
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(2000).optional(),
     triggerEvent: z.string().min(1).max(200).optional(),
-    conditions: z.record(z.unknown()).optional(),
+    conditions: z.record(z.string(), z.unknown()).optional(),
     actions: z.array(PlaybookActionSchema).min(1).optional(),
     enabled: z.boolean().optional(),
 });
@@ -411,7 +411,7 @@ export type AddYaraRule = z.infer<typeof AddYaraRuleSchema>;
 
 /** PUT /v1/yara/rules/:name/toggle — toggle rule enabled/disabled */
 export const ToggleYaraRuleSchema = z.object({
-    enabled: z.boolean({ required_error: 'enabled is required' }),
+    enabled: z.boolean({ error: (issue) => (issue.input === undefined ? 'enabled is required' : undefined) }),
 });
 export type ToggleYaraRule = z.infer<typeof ToggleYaraRuleSchema>;
 
@@ -554,7 +554,7 @@ export const HypothesisCreateSchema = z.object({
     title: z.string().min(1).max(500),
     claim: z.string().min(1).max(10_000),
     subjectType: HypothesisSubjectTypeEnum.optional(),
-    subjectId: z.string().uuid().optional(),
+    subjectId: z.string().guid().optional(),
     /** Initial confidence; defaults to 50. */
     confidenceScore: z.number().int().min(0).max(100).default(50),
 }).refine(v => (v.subjectType ? !!v.subjectId : true), {
@@ -570,7 +570,7 @@ export type HypothesisCreate = z.infer<typeof HypothesisCreateSchema>;
 export const HypothesisListSchema = z.object({
     status: z.enum(['active', 'confirmed', 'refuted']).optional(),
     subjectType: HypothesisSubjectTypeEnum.optional(),
-    subjectId: z.string().uuid().optional(),
+    subjectId: z.string().guid().optional(),
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(200).default(50),
 });
@@ -639,7 +639,7 @@ export type MonitoredDomainUpdate = z.infer<typeof MonitoredDomainUpdateSchema>;
 
 /** GET /v1/brand/alerts — list filters for the triage queue. */
 export const BrandAlertListSchema = z.object({
-    monitoredDomainId: z.string().uuid().optional(),
+    monitoredDomainId: z.string().guid().optional(),
     status: z.enum(['new', 'triaging', 'escalated', 'benign', 'blocked']).optional(),
     dnsState: z.enum(['active', 'mx_only', 'nx', 'error']).optional(),
     minScore: z.coerce.number().int().min(0).max(100).optional(),
@@ -711,7 +711,7 @@ export type DarkWebWatchtermUpdate = z.infer<typeof DarkWebWatchtermUpdateSchema
 
 /** GET /v1/dark-web/mentions — triage queue filter. */
 export const DarkWebMentionListSchema = z.object({
-    watchtermId: z.string().uuid().optional(),
+    watchtermId: z.string().guid().optional(),
     status: z.enum(['new', 'triaging', 'escalated', 'benign', 'blocked']).optional(),
     minScore: z.coerce.number().int().min(0).max(100).optional(),
     page: z.coerce.number().int().min(1).default(1),
@@ -743,7 +743,7 @@ export const PasteWatchtermUpdateSchema = z.object({
 export type PasteWatchtermUpdate = z.infer<typeof PasteWatchtermUpdateSchema>;
 
 export const PasteMentionListSchema = z.object({
-    watchtermId: z.string().uuid().optional(),
+    watchtermId: z.string().guid().optional(),
     status: z.enum(['new', 'triaging', 'escalated', 'benign', 'blocked']).optional(),
     minScore: z.coerce.number().int().min(0).max(100).optional(),
     page: z.coerce.number().int().min(1).default(1),
@@ -777,8 +777,8 @@ export const SandboxSubmitSchema = z.object({
     vendor: z.enum(SANDBOX_VENDORS),
     value: z.string().min(1, 'value is required').max(2048),
     type: z.enum(SANDBOX_SUBMIT_TYPES),
-    iocId: z.string().uuid('iocId must be a UUID').optional(),
-    options: z.record(z.unknown()).optional(),
+    iocId: z.string().guid('iocId must be a UUID').optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
 });
 export type SandboxSubmit = z.infer<typeof SandboxSubmitSchema>;
 
@@ -786,7 +786,7 @@ export type SandboxSubmit = z.infer<typeof SandboxSubmitSchema>;
 export const SandboxListFiltersSchema = z.object({
     vendor: z.enum(SANDBOX_VENDORS).optional(),
     status: z.enum(SANDBOX_STATUS).optional(),
-    iocId: z.string().uuid().optional(),
+    iocId: z.string().guid().optional(),
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(200).default(50),
 });
@@ -863,7 +863,7 @@ export const TaxiiRemoteTargetCreateSchema = z.object({
         includeIOCs: z.boolean().optional(),
         includeThreatActors: z.boolean().optional(),
         includeVulnerabilities: z.boolean().optional(),
-    }).default({}),
+    }).prefault({}),
 });
 export type TaxiiRemoteTargetCreate = z.infer<typeof TaxiiRemoteTargetCreateSchema>;
 
@@ -875,7 +875,7 @@ export type TaxiiRemoteTargetUpdate = z.infer<typeof TaxiiRemoteTargetUpdateSche
 
 /** POST /v1/playbooks/:id/execute — manually trigger execution */
 export const ExecutePlaybookSchema = z.object({
-    triggerData: z.record(z.unknown()).default({}),
+    triggerData: z.record(z.string(), z.unknown()).default({}),
 });
 export type ExecutePlaybook = z.infer<typeof ExecutePlaybookSchema>;
 
@@ -969,29 +969,29 @@ export type UpdateFeed = z.infer<typeof UpdateFeedSchema>;
 /** POST /v1/graph/neo4j/sync — Trigger a Neo4j sync job */
 export const Neo4jSyncSchema = z.object({
     syncType: z.enum(['full', 'incremental', 'iocs', 'all-iocs', 'actors', 'cves', 'techniques', 'malware', 'tools', 'relationships', 'telco', 'onchain', 'frameworks', 'pulses-iocs', 'similarity', 'densify']).default('full'),
-    options: z.record(z.unknown()).default({}),
+    options: z.record(z.string(), z.unknown()).default({}),
 });
 export type Neo4jSync = z.infer<typeof Neo4jSyncSchema>;
 
 /** POST /v1/graph/neo4j/cypher — Execute a read-only Cypher query */
 export const CypherQuerySchema = z.object({
     query: z.string().min(1, 'query is required').max(5000),
-    params: z.record(z.unknown()).optional(),
+    params: z.record(z.string(), z.unknown()).optional(),
     limit: z.number().int().min(1).max(1000).default(100),
 });
 export type CypherQuery = z.infer<typeof CypherQuerySchema>;
 
 /** Shared schema for all export POST routes (csv, json, stix) */
 export const ExportRequestSchema = z.object({
-    filters: z.record(z.unknown()).default({}),
+    filters: z.record(z.string(), z.unknown()).default({}),
     limit: z.number().int().min(1).max(50000).default(10000),
 });
 export type ExportRequest = z.infer<typeof ExportRequestSchema>;
 
 /** POST /taxii2/collections/:id/objects/ — Inbound STIX bundle ingestion */
 export const TaxiiInboundSchema = z.object({
-    type: z.literal('bundle', { errorMap: () => ({ message: 'Request body must be a valid STIX 2.1 bundle' }) }),
-    objects: z.array(z.record(z.unknown())).max(10000, 'Bundle exceeds maximum 10,000 objects'),
+    type: z.literal('bundle', { error: 'Request body must be a valid STIX 2.1 bundle' }),
+    objects: z.array(z.record(z.string(), z.unknown())).max(10000, 'Bundle exceeds maximum 10,000 objects'),
 }).passthrough();
 export type TaxiiInbound = z.infer<typeof TaxiiInboundSchema>;
 
@@ -1028,8 +1028,8 @@ export const CreateWebhookSchema = z.object({
         severity: z.array(z.string()).optional(),
         type: z.array(z.string()).optional(),
         source: z.array(z.string()).optional(),
-    }).default({}),
-    headers: z.record(z.string()).default({}),
+    }).prefault({}),
+    headers: z.record(z.string(), z.string()).default({}),
 });
 export type CreateWebhook = z.infer<typeof CreateWebhookSchema>;
 
@@ -1106,7 +1106,7 @@ export type AdminUpdatePermModule = z.infer<typeof AdminUpdatePermModuleSchema>;
 /** POST /admin/jobs/feed-sync — Trigger a feed sync job */
 export const FeedSyncJobSchema = z.object({
     source: z.string().default('all'),
-    options: z.record(z.unknown()).optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
 });
 export type FeedSyncJob = z.infer<typeof FeedSyncJobSchema>;
 
@@ -1131,14 +1131,14 @@ export type AiAnalysisJob = z.infer<typeof AiAnalysisJobSchema>;
 export const NotificationJobQueueSchema = z.object({
     channel: z.string().min(1, 'channel is required'),
     target: z.string().min(1, 'target is required'),
-    payload: z.record(z.unknown()),
+    payload: z.record(z.string(), z.unknown()),
 });
 export type NotificationJobQueue = z.infer<typeof NotificationJobQueueSchema>;
 
 /** POST /admin/jobs/neo4j-sync — Trigger Neo4j sync */
 export const Neo4jSyncJobSchema = z.object({
     syncType: z.string().default('all-iocs'),
-    options: z.record(z.unknown()).optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
 });
 export type Neo4jSyncJob = z.infer<typeof Neo4jSyncJobSchema>;
 
@@ -1158,7 +1158,7 @@ export const SandboxTestEndpointSchema = z.object({
     url: z.string().url('Invalid URL format'),
     method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD',
         'get', 'post', 'put', 'delete', 'patch', 'head']).default('GET'),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     body: z.unknown().optional(),
     timeoutMs: z.number().int().min(1000).max(30000).default(10000),
 });
@@ -1328,7 +1328,7 @@ export type MetricsGrowthQuery = z.infer<typeof MetricsGrowthQuerySchema>;
 export const AIAnalyzeSchema = z.object({
     entityType: z.enum(['ioc', 'cve', 'actor']),
     entityId: z.string().min(1, 'entityId is required'),
-    entityData: z.record(z.unknown()),
+    entityData: z.record(z.string(), z.unknown()),
     forceRefresh: z.boolean().default(false),
 });
 export type AIAnalyze = z.infer<typeof AIAnalyzeSchema>;
@@ -1337,7 +1337,7 @@ export type AIAnalyze = z.infer<typeof AIAnalyzeSchema>;
 export const SSEPublishSchema = z.object({
     channel: z.enum(['ioc', 'alert', 'feed', 'enrichment', 'system']),
     type: z.string().min(1, 'type is required'),
-    data: z.record(z.unknown()),
+    data: z.record(z.string(), z.unknown()),
     source: z.string().optional(),
 });
 export type SSEPublish = z.infer<typeof SSEPublishSchema>;
@@ -1513,7 +1513,7 @@ export type UpdateVulnerability = z.infer<typeof UpdateVulnerabilitySchema>;
 
 /** POST /v1/vulnerabilities/:id/link — Link IOC to vulnerability */
 export const VulnLinkIOCSchema = z.object({
-    iocId: z.string().uuid('Must be a valid IOC UUID'),
+    iocId: z.string().guid('Must be a valid IOC UUID'),
     relationship: z.enum(['exploits', 'indicates', 'mitigates', 'related-to']).default('related-to'),
     notes: z.string().max(2000).optional(),
 });
@@ -1700,12 +1700,12 @@ export const CreateReportScheduleSchema = z.object({
         entityTypes: z.array(z.string()).optional(),
         severity: z.enum(['critical', 'high', 'medium', 'low']).optional(),
         dateRange: z.enum(['24h', '7d', '30d']).default('7d'),
-    }).default({}),
+    }).prefault({}),
     delivery: z.object({
         email: z.string().email().optional(),
         slack: z.boolean().default(false),
         inApp: z.boolean().default(true),
-    }).default({}),
+    }).prefault({}),
     enabled: z.boolean().default(true),
 });
 export type CreateReportSchedule = z.infer<typeof CreateReportScheduleSchema>;
@@ -1820,7 +1820,7 @@ export const CreateRetentionPolicySchema = z.object({
         severity: z.string().optional(),
         source: z.string().optional(),
         maxRiskScore: z.number().int().min(0).max(100).optional(),
-    }).default({}),
+    }).prefault({}),
     enabled: z.boolean().default(true),
 });
 

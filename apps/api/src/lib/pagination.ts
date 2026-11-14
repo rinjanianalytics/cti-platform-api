@@ -53,7 +53,7 @@ export const CursorParamsSchema = z.object({
 // ============================================================================
 
 export const IdParamSchema = z.object({
-    id: z.string().uuid('Invalid UUID format'),
+    id: z.string().guid('Invalid UUID format'),
 });
 
 export const PaginationSchema = z.object({

@@ -70,7 +70,7 @@ if (enabled) {
         const sdk = new NodeSDK({
             resource,
             traceExporter,
-            metricReader,
+            metricReaders: [metricReader],
             instrumentations: [
                 getNodeAutoInstrumentations({
                     // Suppress noisy FS instrumentation

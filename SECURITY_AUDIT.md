@@ -301,3 +301,95 @@ asking "why is this here?" months from now.
   from 2026-05-27; nothing remains deferred from prior audits.
 - The `pnpm audit` CI gate that was failing on PR #69/#70's runs
   should be green again — no follow-up CI work needed.
+
+---
+
+# Security Audit: 2026-11-14 (dependency refresh)
+
+Triggered by GitHub Dependabot reporting 125 open alerts on `master`
+(44 high, 70 moderate, 11 low). `pnpm audit` on the same commit counted
+162 advisories across 38 packages, because it also lists advisories
+Dependabot had not opened alerts for yet.
+
+## Headline result
+
+| Severity | Before | After |
+|----------|--------|-------|
+| critical | 1   | 0 |
+| high     | 57  | 0 |
+| moderate | 91  | 0 |
+| low      | 13  | 0 |
+| **total** | **162** | **0** |
+
+## What changed
+
+**Major upgrades of direct dependencies** (no patched release exists on
+the old major):
+
+| Package | From | To | Code impact |
+|---|---|---|---|
+| `zod` | 3.25 | 4.6.7 | See "zod 4 migration" below. |
+| `nodemailer` | 8.0.9 | 10.5.0 | None. `createTransport`, `verify` and `sendMail` are unchanged. |
+| `fast-xml-parser` | 4.5.6 | 5.12.1 | None. Same output on every live feed (see Verification). |
+| `@hono/node-server` | 1.19.14 | 2.1.8 | None. `serve` and `serve-static` are unchanged for our use. |
+| `@opentelemetry/*` | 0.217 / 2.5 | 0.301 / 3.1 | `NodeSDK` takes `metricReaders: [reader]` instead of `metricReader`. |
+| `exa-js` | 2.3.0 | 2.28.0 | None. Removes the last copy of zod 3 from the tree. |
+
+**Minor and patch bumps:** `hono` 4.13.18, `graphql-yoga` 5.24.6,
+GraphQL Mesh and `@graphql-tools/*` in the gateway, `vitest` 4.1.12,
+`vite` 6.4.6, `react-router-dom` 7.18.5.
+
+**`pnpm.overrides`:** five existing floors raised, thirteen ranged
+entries added for transitive packages. The comment block in the root
+`package.json` lists each one and the parent that pulls it in.
+
+## zod 4 migration
+
+- `z.record(value)` is now `z.record(z.string(), value)`.
+- Object schemas that used `.default({})` to fill nested defaults now
+  use `.prefault({})`, which is the zod 4 name for that behavior.
+- `ZodError.errors` is now `ZodError.issues`.
+- `required_error` and `errorMap` options are now the `error` option.
+- `z.string().uuid()` became `z.string().guid()`. zod 4's `uuid()`
+  rejects IDs whose version and variant digits are not RFC 9562 values.
+  `guid()` accepts any 8-4-4-4-12 hex string, which is what zod 3
+  accepted, so no ID that validated before is rejected now.
+
+**Visible to API clients:** the `details` array of a `VALIDATION_ERROR`
+response carries zod's issue objects. zod 4 renames some issue codes
+(for example `invalid_string` is now `invalid_format`) and rewords the
+default messages. Status codes and the `error.code` field are the same.
+
+## Not upgraded, on purpose
+
+- `graphql-yoga` 6 and `@graphql-tools/schema` 11 need Node 22. The
+  image and CI run Node 20, so these stay on their previous majors,
+  which have patched releases.
+- `@xenova/transformers` has no release that uses a patched `sharp`.
+  An override moves its `sharp` to 0.35.5. Local embedding does not
+  use image code, and it still produces 384-dimension vectors.
+
+## Verification
+
+- `pnpm audit`: 0 advisories.
+- `tsc --noEmit` for api, worker and gateway: 0 errors.
+- `pnpm test`: 1,597 tests pass (api 1,202, feed-engine 381, gateway 14), 1 skipped as before.
+- `pnpm lint`, `pnpm build`, `scripts/check-dockerfile-deps.mjs`: pass.
+- XML parser: version 4.5.6 and 5.12.1 give identical output on the
+  eight intel and telco feeds and the OFAC SDN list, each parsed with
+  the options its feed handler uses.
+- `docker build` passes on `node:20-slim`. The container started
+  against a fresh Postgres 16 (52 migrations applied) and Redis 8:
+  `/healthz` and `/readyz` return 200, authenticated REST reads and
+  writes work, invalid bodies return 400, GraphQL answers, and the
+  queue dashboard serves its static files.
+- OpenTelemetry starts and records spans with an OTLP endpoint set.
+
+Not verified: routes that need OpenSearch or Neo4j, a real SMTP
+server, and a real OTLP collector.
+
+## What to do post-merge
+
+- Rebuild and redeploy the API image. No migration is involved.
+- Node 20 is past its end of life. Moving the image and CI to Node 22
+  would unblock `graphql-yoga` 6.

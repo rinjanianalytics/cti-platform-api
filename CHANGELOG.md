@@ -8,6 +8,18 @@ Commits in our git log so most entries can be derived from `git log --pretty=%s`
 
 _(Add entries here as work lands on `master`. Cut a new dated section when tagging a release.)_
 
+### Security
+- **Dependency refresh (2026-11-14)**: cleared all 162 `pnpm audit`
+  advisories (125 Dependabot alerts). Major upgrades: `zod` 3 to 4,
+  `nodemailer` 8 to 10, `fast-xml-parser` 4 to 5, `@hono/node-server`
+  1 to 2, OpenTelemetry SDK 0.217 to 0.301. See
+  [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
+
+### Changed
+- `VALIDATION_ERROR` responses: the `details` array now carries zod 4
+  issue objects. Some issue codes and default messages differ from
+  zod 3. Status codes and `error.code` are unchanged.
+
 ---
 
 ## [3.0.0] — 2026-05-28

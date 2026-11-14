@@ -165,7 +165,7 @@ router.post('/threat-actors/:id/summary', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const parsed = ActorSummarySchema.safeParse(body);
     if (!parsed.success) {
-        throw new ValidationError(parsed.error.errors.map(e => e.message).join('; '));
+        throw new ValidationError(parsed.error.issues.map(e => e.message).join('; '));
     }
 
     const result = await summariseActor(id, parsed.data);

@@ -27,9 +27,9 @@ export const IOCSearchSchema = z.object({
         maxConfidence: z.number().int().min(0).max(100).optional(),
         dateFrom: z.string().datetime().optional(),
         dateTo: z.string().datetime().optional(),
-    }).default({}),
-    sort: SortSchema.default({}),
-    pagination: PaginationSchema.default({}),
+    }).prefault({}),
+    sort: SortSchema.prefault({}),
+    pagination: PaginationSchema.prefault({}),
     aggregations: z.boolean().default(false),
 });
 
@@ -43,7 +43,7 @@ export const VulnSearchSchema = z.object({
         dateFrom: z.string().datetime().optional(),
         dateTo: z.string().datetime().optional(),
         vendor: z.string().optional(),
-    }).default({}),
+    }).prefault({}),
     sort: SortSchema.default({ field: 'publishedDate', order: 'desc' }),
     pagination: PaginationSchema.default({ page: 1, limit: 50 }),
 });

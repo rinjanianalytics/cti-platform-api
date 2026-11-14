@@ -46,7 +46,7 @@ This starts the **6-service data plane** the app talks to:
 | `v3-opensearch` | 9200 | Search + vector |
 | `v3-neo4j` | 7474 / 7687 | Graph (actors / IOCs / techniques) |
 
-Everything else (api & worker as containers, Keycloak, Vault, Traefik,
+Everything else (the API as a container, Keycloak, Vault, Traefik,
 prometheus stack) is gated behind opt-in compose profiles — see
 `docker-compose.yml` and the **Docker compose profiles** section in
 [README.md](README.md). The default `up -d` does **not** start `v3-api`, so it
@@ -62,7 +62,7 @@ pnpm --filter @rinjani/db push
 ### 5. Start Development Servers
 
 ```bash
-# Start all services (API + Worker)
+# Start the API. Workers and the scheduler run inside it.
 pnpm dev
 ```
 
@@ -78,19 +78,27 @@ pnpm dev
 ### Option 1: Docker Compose
 
 ```bash
-# Build app images (api + worker) and start them alongside the data plane.
-# The `apps` profile contains v3-api and v3-worker; without it the data
-# services come up but no app process runs.
+# Build the API image and start it alongside the data plane.
+# The `apps` profile contains v3-api; without it the data services come up
+# but no app process runs. Workers and the scheduler run inside v3-api.
+# There is no separate worker container.
 docker compose --profile apps up -d --build
 
 # Add the gateway/telemetry/platform profiles as needed:
 docker compose --profile apps --profile gateway --profile telemetry up -d
 ```
 
-> **Note:** there is no separate `docker-compose.prod.yml`. The same
-> `docker-compose.yml` covers dev + prod via profiles; production runs
-> typically combine `--profile apps --profile gateway` (Traefik in front of
-> the API) plus whatever observability stack you want.
+> **Note:** `docker-compose.yml` covers dev and prod through profiles. The
+> command above is all a production host needs.
+>
+> `docker-compose.prod.yml` is an optional override. It adds resource
+> limits to `v3-api` and puts Traefik with TLS in front of it, so the API
+> publishes no port of its own. It still needs the `apps` profile, because
+> `v3-api` lives in that profile:
+>
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile apps up -d --build
+> ```
 
 #### Updating environment variables
 
@@ -123,14 +131,22 @@ helm dependency update ./helm/v3-threat-intel
 # Install chart
 helm install v3-ti ./helm/v3-threat-intel \
   --set api.image.tag=latest \
-  --set worker.image.tag=latest \
+  --set worker.enabled=false \
+  --set cronjobs.enabled=false \
   --set postgresql.auth.password=YOUR_PASSWORD \
   --set redis.auth.password=YOUR_PASSWORD
 ```
 
+> **Turn off `worker` and `cronjobs`.** The chart still defines a worker
+> deployment and three feed-sync CronJobs, and both default to on. They
+> use the image `rinjani/v3-worker`, which is no longer built: workers and
+> the scheduler now run inside the API pod. Left on, those pods fail to
+> pull their image.
+
 **Helm Values:**
-- `api.replicas` - Number of API pods (default: 2)
-- `worker.replicas` - Number of worker pods (default: 1)
+- `api.replicaCount` - Number of API pods (default: 2)
+- `worker.enabled` - Legacy worker deployment. Set to `false`.
+- `cronjobs.enabled` - Legacy feed-sync CronJobs. Set to `false`.
 - `ingress.enabled` - Enable ingress (default: true)
 - `ingress.tls.enabled` - Enable TLS (default: true)
 
@@ -140,12 +156,8 @@ helm install v3-ti ./helm/v3-threat-intel \
 # Build applications
 pnpm build
 
-# Start API server
+# Start the API server. Workers and the scheduler run inside it.
 cd apps/api
-NODE_ENV=production node dist/index.js
-
-# Start worker (separate process)
-cd apps/worker
 NODE_ENV=production node dist/index.js
 ```
 
@@ -291,20 +303,21 @@ pnpm --filter @rinjani/worker sync:alienvault
 ### Daemon Mode
 
 ```bash
-# Workers + scheduler + feed-sync daemon now run inside the API process.
+# Workers, the scheduler and feed sync all run inside the API process.
 # A single `pnpm dev` at the repo root boots everything.
 pnpm dev
-
-# Legacy standalone feed-only daemon (no BullMQ, emergency use):
-pnpm --filter @rinjani/worker dev:standalone
 ```
+
+There is no standalone daemon. The BullMQ scheduler inside the API is the
+only thing that dispatches feed syncs. Change a feed's schedule at
+`/admin/feeds` in the dashboard or in Workbench.
 
 ### Kubernetes CronJobs
 
-Helm chart includes CronJobs for:
-- CISA KEV: Every 6 hours
-- AlienVault OTX: Every 4 hours
-- MITRE ATT&CK: Daily
+Do not use them. The Helm chart still ships CronJobs for CISA KEV,
+AlienVault OTX and MITRE ATT&CK, but they run the retired worker image and
+would duplicate the scheduler. Install the chart with
+`--set cronjobs.enabled=false`.
 
 ---
 
@@ -386,13 +399,11 @@ key every 15s and the API logs a steady stream of 401s.
 ### Logs
 
 ```bash
-# Docker logs
+# Docker logs. Worker and scheduler output is in the API's log.
 docker logs v3-api
-docker logs v3-worker
 
 # Kubernetes logs
 kubectl logs -f deployment/v3-ti-api
-kubectl logs -f deployment/v3-ti-worker
 ```
 
 ---
@@ -432,11 +443,11 @@ docker ps | grep postgres
 psql postgresql://postgres:postgres@localhost:5432/rinjani_v3
 ```
 
-### Worker Not Syncing
+### Feeds Not Syncing
 
 ```bash
-# Check worker logs
-docker logs v3-worker
+# Workers run inside the API, so check the API's log
+docker logs v3-api
 
 # Verify DATABASE_URL is set
 echo $DATABASE_URL
@@ -472,11 +483,9 @@ psql -U postgres rinjani_v3 \u003c backup.sql
 ### Horizontal Scaling (Kubernetes)
 
 ```bash
-# Scale API pods
+# Scale API pods. A Redis boot lock keeps several pods from
+# scheduling the same feed sync twice.
 kubectl scale deployment v3-ti-api --replicas=5
-
-# Scale worker pods
-kubectl scale deployment v3-ti-worker --replicas=3
 ```
 
 ### Vertical Scaling

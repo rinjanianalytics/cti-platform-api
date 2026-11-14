@@ -331,14 +331,17 @@ docker compose down -v                  # also wipe volumes (destructive)
 ## ☸️ Kubernetes Deployment
 
 ```bash
-# Install with Helm
-helm install v3-ti ./helm/v3-threat-intel
+# Install with Helm. Build the image and create the secret first:
+# see "Option 2: Kubernetes (Helm)" in DEPLOY.md.
+helm dependency update ./helm/v3-threat-intel
+helm install v3-ti ./helm/v3-threat-intel \
+  --set api.image.repository=YOUR_REGISTRY/v3-api --set api.image.tag=TAG
 
 # Scale API pods
-kubectl scale deployment v3-ti-api --replicas=5
+kubectl scale deployment v3-ti-v3-threat-intel-api --replicas=5
 
 # View logs
-kubectl logs -f deployment/v3-ti-api
+kubectl logs -f deployment/v3-ti-v3-threat-intel-api
 ```
 
 See [DEPLOY.md](DEPLOY.md) for detailed deployment instructions.

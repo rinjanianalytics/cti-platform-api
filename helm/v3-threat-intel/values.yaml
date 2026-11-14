@@ -14,6 +14,8 @@ api:
   enabled: true
   replicaCount: 2
   
+  # The image is not published. Build it from the Dockerfile at the root of
+  # this repository, push it to your own registry, and point these at it.
   image:
     repository: rinjani/v3-api
     tag: latest
@@ -61,6 +63,10 @@ api:
     LOG_LEVEL: info
     OTEL_ENABLED: "true"
   
+  # Each entry reads one key of a Secret you create before installing.
+  # The API cannot start without DATABASE_URL, JWT_SECRET and a Redis URL.
+  # REDIS_URL serves both the queue and the cache. To split them, replace it
+  # with REDIS_QUEUE_URL and REDIS_CACHE_URL.
   envSecrets:
     - name: DATABASE_URL
       secretName: v3-secrets
@@ -71,85 +77,60 @@ api:
     - name: REDIS_URL
       secretName: v3-secrets
       secretKey: redis-url
+    # Optional. Without Neo4j the graph features are off. Without OpenSearch,
+    # search falls back to Postgres. This chart deploys neither Neo4j nor,
+    # by default, OpenSearch: point these at instances you run.
+    # - name: NEO4J_URI
+    #   secretName: v3-secrets
+    #   secretKey: neo4j-uri
+    # - name: NEO4J_USER
+    #   secretName: v3-secrets
+    #   secretKey: neo4j-user
+    # - name: NEO4J_PASSWORD
+    #   secretName: v3-secrets
+    #   secretKey: neo4j-password
+    # - name: OPENSEARCH_URL
+    #   secretName: v3-secrets
+    #   secretKey: opensearch-url
   
+  # /healthz answers as soon as the process is up and touches no database.
   livenessProbe:
     httpGet:
-      path: /health
+      path: /healthz
       port: 3001
     initialDelaySeconds: 10
     periodSeconds: 30
   
+  # /readyz returns 200 only when Postgres and the queue Redis are reachable.
   readinessProbe:
     httpGet:
-      path: /health
+      path: /readyz
       port: 3001
     initialDelaySeconds: 5
     periodSeconds: 10
 
 # -----------------------------------------------------------------------------
-# Worker Service
+# Workers and feed sync
 # -----------------------------------------------------------------------------
-worker:
-  enabled: true
-  replicaCount: 1
-  
-  image:
-    repository: rinjani/v3-worker
-    tag: latest
-    pullPolicy: IfNotPresent
-  
-  resources:
-    limits:
-      cpu: 500m
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 256Mi
-  
-  env:
-    NODE_ENV: production
-    LOG_LEVEL: info
-  
-  envSecrets:
-    - name: DATABASE_URL
-      secretName: v3-secrets
-      secretKey: database-url
-    - name: ALIENVAULT_API_KEY
-      secretName: v3-secrets
-      secretKey: alienvault-api-key
-
-# -----------------------------------------------------------------------------
-# CronJobs for Feed Syncing
-# -----------------------------------------------------------------------------
-cronjobs:
-  enabled: true
-  
-  # CISA KEV sync - every 6 hours
-  cisaSync:
-    enabled: true
-    schedule: "0 */6 * * *"
-    image: rinjani/v3-worker:latest
-    command: ["node", "apps/worker/dist/feeds/cisa.js"]
-  
-  # AlienVault OTX sync - every 4 hours
-  alienvaultSync:
-    enabled: true
-    schedule: "0 */4 * * *"
-    image: rinjani/v3-worker:latest
-    command: ["node", "apps/worker/dist/feeds/alienvault.js"]
-  
-  # MITRE ATT&CK sync - daily at 2am
-  mitreSync:
-    enabled: true
-    schedule: "0 2 * * *"
-    image: rinjani/v3-worker:latest
-    command: ["node", "apps/worker/dist/feeds/mitre.js"]
+# There is nothing to configure here. BullMQ workers and the scheduler run
+# inside the API pod, and the scheduler is the only thing that dispatches
+# feed syncs. A Redis boot lock keeps several API pods from scheduling the
+# same sync twice. This chart used to ship a separate worker deployment and
+# three feed-sync CronJobs; both were removed in chart 2.0.0 because the
+# image they ran is no longer built.
 
 # -----------------------------------------------------------------------------
 # PostgreSQL (Bitnami subchart)
 # -----------------------------------------------------------------------------
+# Bitnami removed its free images from docker.io/bitnami in 2025. The
+# archived copies live under bitnamilegacy and get no further updates, so
+# treat the bundled Postgres and Redis as a way to try the chart. For
+# production, set postgresql.enabled and redis.enabled to false and point
+# DATABASE_URL and REDIS_URL at databases you run or rent.
 postgresql:
   enabled: true
+  image:
+    repository: bitnamilegacy/postgresql
   auth:
     database: rinjani_v3
     username: rinjani
@@ -174,6 +155,8 @@ postgresql:
 # -----------------------------------------------------------------------------
 redis:
   enabled: true
+  image:
+    repository: bitnamilegacy/redis
   auth:
     enabled: true
     existingSecret: v3-secrets
@@ -230,13 +213,16 @@ securityContext:
 # -----------------------------------------------------------------------------
 # Network Policy
 # -----------------------------------------------------------------------------
+# Off by default. When on, only the listed sources may reach the API pods.
+# The default rule admits the ingress-nginx namespace, matched by the label
+# Kubernetes sets on every namespace.
 networkPolicy:
-  enabled: true
+  enabled: false
   ingress:
     - from:
         - namespaceSelector:
             matchLabels:
-              name: ingress-nginx
+              kubernetes.io/metadata.name: ingress-nginx
       ports:
         - port: 3001
 
@@ -250,9 +236,6 @@ podDisruptionBudget:
 # -----------------------------------------------------------------------------
 # Monitoring
 # -----------------------------------------------------------------------------
-monitoring:
-  enabled: true
-  serviceMonitor:
-    enabled: true
-    interval: 30s
-    path: /metrics
+# The API has no /metrics endpoint, so there is no ServiceMonitor. It exports
+# traces and metrics over OpenTelemetry instead: set OTEL_EXPORTER_OTLP_ENDPOINT
+# under api.env to the address of your collector.

@@ -124,31 +124,67 @@ were missing for 20 minutes because the container had stale
 
 ### Option 2: Kubernetes (Helm)
 
-```bash
-# Add Helm dependencies
-helm dependency update ./helm/v3-threat-intel
+The chart deploys the API. Workers and the scheduler run inside the API
+pod, so there is no worker deployment and no feed-sync CronJob.
 
-# Install chart
-helm install v3-ti ./helm/v3-threat-intel \
-  --set api.image.tag=latest \
-  --set worker.enabled=false \
-  --set cronjobs.enabled=false \
-  --set postgresql.auth.password=YOUR_PASSWORD \
-  --set redis.auth.password=YOUR_PASSWORD
+**1. Build and push the API image.** It is not published.
+
+```bash
+docker build -t YOUR_REGISTRY/v3-api:TAG .
+docker push YOUR_REGISTRY/v3-api:TAG
 ```
 
-> **Turn off `worker` and `cronjobs`.** The chart still defines a worker
-> deployment and three feed-sync CronJobs, and both default to on. They
-> use the image `rinjani/v3-worker`, which is no longer built: workers and
-> the scheduler now run inside the API pod. Left on, those pods fail to
-> pull their image.
+**2. Create the secret the chart reads.** All five keys are required with
+the default values.
 
-**Helm Values:**
-- `api.replicaCount` - Number of API pods (default: 2)
-- `worker.enabled` - Legacy worker deployment. Set to `false`.
-- `cronjobs.enabled` - Legacy feed-sync CronJobs. Set to `false`.
-- `ingress.enabled` - Enable ingress (default: true)
-- `ingress.tls.enabled` - Enable TLS (default: true)
+```bash
+kubectl create secret generic v3-secrets \
+  --from-literal=database-url='postgresql://rinjani:PG_PASSWORD@v3-ti-postgresql:5432/rinjani_v3' \
+  --from-literal=redis-url='redis://:REDIS_PASSWORD@v3-ti-redis-master:6379' \
+  --from-literal=jwt-secret='A_LONG_RANDOM_STRING' \
+  --from-literal=postgres-password='PG_PASSWORD' \
+  --from-literal=redis-password='REDIS_PASSWORD'
+```
+
+The two host names above are the ones the bundled Postgres and Redis get
+when the release is named `v3-ti`.
+
+**3. Install.**
+
+```bash
+helm dependency update ./helm/v3-threat-intel
+
+helm install v3-ti ./helm/v3-threat-intel \
+  --set api.image.repository=YOUR_REGISTRY/v3-api \
+  --set api.image.tag=TAG \
+  --set api.ingress.hosts[0].host=api.example.com \
+  --set api.ingress.tls[0].hosts[0]=api.example.com
+```
+
+**Helm values:**
+- `api.replicaCount` - API pods when autoscaling is off (default: 2)
+- `api.autoscaling.enabled` - Scale between `minReplicas` and `maxReplicas` on CPU and memory (default: true)
+- `api.ingress.enabled` - Create an Ingress (default: true)
+- `api.envSecrets` - Environment variables read from a Secret
+- `podDisruptionBudget.enabled` - Keep at least one API pod during node drains (default: true)
+- `networkPolicy.enabled` - Admit traffic to the API only from the ingress namespace (default: false)
+- `postgresql.enabled`, `redis.enabled` - Bundled databases (default: true)
+
+**What the chart does not deploy:**
+- **Neo4j.** Without it the graph features are off. Run your own and set
+  `NEO4J_URI`, `NEO4J_USER` and `NEO4J_PASSWORD` through `api.envSecrets`.
+  `values.yaml` has the entries, commented out.
+- **OpenSearch**, unless you set `opensearch.enabled=true`. Without it,
+  search falls back to Postgres.
+
+**Bundled Postgres and Redis are for trying the chart.** Their images come
+from Bitnami's archived `bitnamilegacy` registry, which gets no further
+updates. For production, set `postgresql.enabled=false` and
+`redis.enabled=false`, and point `database-url` and `redis-url` at
+databases you run or rent.
+
+**Probes.** Liveness uses `/healthz`, which answers as soon as the process
+is up. Readiness uses `/readyz`, which needs Postgres and the queue Redis.
 
 ### Option 3: Manual Deployment
 
@@ -312,12 +348,10 @@ There is no standalone daemon. The BullMQ scheduler inside the API is the
 only thing that dispatches feed syncs. Change a feed's schedule at
 `/admin/feeds` in the dashboard or in Workbench.
 
-### Kubernetes CronJobs
+### Kubernetes
 
-Do not use them. The Helm chart still ships CronJobs for CISA KEV,
-AlienVault OTX and MITRE ATT&CK, but they run the retired worker image and
-would duplicate the scheduler. Install the chart with
-`--set cronjobs.enabled=false`.
+There are no feed-sync CronJobs. The scheduler inside the API pod runs
+every feed on Kubernetes too, as it does under Docker Compose.
 
 ---
 
@@ -403,7 +437,7 @@ key every 15s and the API logs a steady stream of 401s.
 docker logs v3-api
 
 # Kubernetes logs
-kubectl logs -f deployment/v3-ti-api
+kubectl logs -f deployment/v3-ti-v3-threat-intel-api
 ```
 
 ---
@@ -485,7 +519,7 @@ psql -U postgres rinjani_v3 \u003c backup.sql
 ```bash
 # Scale API pods. A Redis boot lock keeps several pods from
 # scheduling the same feed sync twice.
-kubectl scale deployment v3-ti-api --replicas=5
+kubectl scale deployment v3-ti-v3-threat-intel-api --replicas=5
 ```
 
 ### Vertical Scaling

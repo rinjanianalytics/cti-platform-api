@@ -58,8 +58,14 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            # The root filesystem is read-only. The local embedding model
+            # needs a writable cache; it is downloaded once per pod.
+            - name: model-cache
+              mountPath: /app/.cache/transformers
       volumes:
         - name: tmp
+          emptyDir: {}
+        - name: model-cache
           emptyDir: {}
       {{- with .Values.nodeSelector }}
       nodeSelector:

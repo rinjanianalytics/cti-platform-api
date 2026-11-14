@@ -33,6 +33,14 @@ type TransformersPipeline = Awaited<ReturnType<typeof pipeline>>;
 env.allowLocalModels = true;
 env.allowRemoteModels = true; // Allow first download, then cached
 
+// The library's default cache is a folder inside its own package directory.
+// In the Docker image that directory belongs to root and the API runs as a
+// non-root user, so the write fails and the model is downloaded again on
+// every start. EMBEDDING_CACHE_DIR points the cache at a writable folder.
+if (process.env.EMBEDDING_CACHE_DIR) {
+    env.cacheDir = process.env.EMBEDDING_CACHE_DIR;
+}
+
 const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
 const EMBEDDING_DIM = 384;
 const BATCH_SIZE = 32; // Process embeddings in batches

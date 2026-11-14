@@ -457,6 +457,9 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3001"
+    volumes:
+      # Local embedding model. Keeps the download across rebuilds.
+      - v3_model_cache:/app/.cache/transformers
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -622,6 +625,8 @@ volumes:
   v3_osdata:
     driver: local
   v3_neo4j:
+    driver: local
+  v3_model_cache:
     driver: local
   v3_traefik_certs:
     driver: local

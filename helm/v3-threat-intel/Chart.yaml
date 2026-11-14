@@ -2,7 +2,7 @@ apiVersion: v2
 name: v3-threat-intel
 description: V3 Threat Intelligence API Helm Chart
 type: application
-version: 2.0.0
+version: 2.0.1
 appVersion: "1.0.0"
 
 keywords:

@@ -18,7 +18,7 @@ pnpm dev                   # API on :3001, gateway on :4000, workers in-process
 ```
 
 If `pnpm install` is your first encounter with this monorepo, see [DEPLOY.md](DEPLOY.md)
-for the full prerequisites list (Node 20+ floor, Tailwind 4 oxide binding,
+for the full prerequisites list (Node 22+ floor, Tailwind 4 oxide binding,
 why both Redis ports exist).
 
 ## Workflow

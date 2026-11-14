@@ -4,7 +4,7 @@ By [RinjaniAnalytics](https://rinjanianalytics.com). Pairs with the [cti-platfor
 
 ## Prerequisites
 
-- **Node.js** 20+ — Tailwind 4 / `@tailwindcss/oxide` native binding for the embedded Workbench UI build won't resolve on Node 18
+- **Node.js** 22+. The Docker image and CI run Node 22. Node 20 is past its end of life
 - **PostgreSQL** 16+ — canonical store
 - **Redis** 7+ — both queues (port 6380 in dev) and cache (port 6381 in dev); one instance works, but separating them lets BullMQ tune AOF independently from the cache's LRU eviction
 - **OpenSearch** 2.x — full-text + vector search; required for `/v2/search`, similar-entity lookup, and the OpenSearch event-stream consumer group

@@ -30,7 +30,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
   # pnpm version is intentionally NOT pinned here — `pnpm/action-setup@v4`
   # auto-reads `packageManager` from root `package.json` (currently
   # `pnpm@9.0.0`). Specifying both `version:` and `packageManager` causes
@@ -175,9 +175,9 @@ jobs:
           NODE_ENV: test
 
   # ------------------------------------------------------------------
-  # Workbench-core UI build needs Node 20+ for the Tailwind 4 oxide
-  # native binding; we re-run install on Node 20 to fetch the binary
-  # that Node 18 silently skips.
+  # Workbench-core UI build needs the Tailwind 4 oxide native binding,
+  # which only installs on a supported Node. This job runs on the same
+  # Node 22 as the image.
   # ------------------------------------------------------------------
   build:
     name: Workspace build

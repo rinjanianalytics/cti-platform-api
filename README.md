@@ -135,7 +135,7 @@ Workers used to run as a separate `apps/worker` process; they're now folded into
 
 ### Prerequisites
 
-- Node.js 20+ or Bun 1.0+
+- Node.js 22+ or Bun 1.0+
 - PostgreSQL 16+
 - Redis 7+
 - Docker & Docker Compose (optional)

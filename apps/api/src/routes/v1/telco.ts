@@ -42,7 +42,7 @@ router.get('/telco/intel', async (c) => {
 const refId = z.string().min(1).max(255);
 const name = z.string().min(1).max(500);
 const jsonStrArray = z.array(z.string()).default([]);
-const jsonObjArray = z.array(z.record(z.unknown())).default([]);
+const jsonObjArray = z.array(z.record(z.string(), z.unknown())).default([]);
 const stixId = z.string().max(255).optional();
 
 const NetworkElementBody = z.object({

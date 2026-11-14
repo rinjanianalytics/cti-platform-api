@@ -22,11 +22,11 @@ const router = new Hono();
 // ============================================================================
 
 const BatchIdsSchema = z.object({
-    ids: z.array(z.string().uuid()).min(1).max(500),
+    ids: z.array(z.string().guid()).min(1).max(500),
 });
 
 const BatchUpdateIOCSchema = z.object({
-    ids: z.array(z.string().uuid()).min(1).max(500),
+    ids: z.array(z.string().guid()).min(1).max(500),
     update: z.object({
         severity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
         confidence: z.number().int().min(0).max(100).optional(),
@@ -36,7 +36,7 @@ const BatchUpdateIOCSchema = z.object({
 });
 
 const BatchTagSchema = z.object({
-    ids: z.array(z.string().uuid()).min(1).max(500),
+    ids: z.array(z.string().guid()).min(1).max(500),
     addTags: z.array(z.string()).optional(),
     removeTags: z.array(z.string()).optional(),
 }).refine(obj => obj.addTags?.length || obj.removeTags?.length, 'At least one of addTags or removeTags required');
@@ -204,7 +204,7 @@ router.post('/batch/iocs/tags', requireAuth, requireRole('admin', 'analyst'), as
 /** POST /batch/cves/update — Update multiple CVEs at once */
 router.post('/batch/cves/update', requireAuth, requireRole('admin', 'analyst'), async (c) => {
     const body = z.object({
-        ids: z.array(z.string().uuid()).min(1).max(500),
+        ids: z.array(z.string().guid()).min(1).max(500),
         update: z.object({
             severity: z.enum(['none', 'low', 'medium', 'high', 'critical']).optional(),
             isExploited: z.boolean().optional(),

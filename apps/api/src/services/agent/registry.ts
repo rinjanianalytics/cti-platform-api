@@ -150,7 +150,7 @@ register({
         'observation materially supports/refutes an existing hypothesis. Needs the hypothesis id.',
     write: true,
     argsSchema: z.object({
-        hypothesisId: z.string().uuid(),
+        hypothesisId: z.string().guid(),
         evidenceType: z.enum(['ioc', 'relationship', 'sighting', 'actor', 'malware', 'campaign', 'report', 'freeform']),
         kind: z.enum(['supports', 'refutes']),
         note: z.string().min(1).max(2000),

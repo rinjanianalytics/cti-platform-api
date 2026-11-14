@@ -43,7 +43,7 @@ router.use('*', requireAuth);
 const CreateBody = z.object({
     source: z.string().min(1).max(100),
     entity: z.string().min(1).max(50),
-    manifest: z.record(z.unknown()),
+    manifest: z.record(z.string(), z.unknown()),
 });
 
 const ListQuery = z.object({
@@ -68,7 +68,7 @@ const PreviewBody = z.object({
 
 const TestBody = z.object({
     sample: z.string().min(1).max(256 * 1024),
-    manifest: z.record(z.unknown()),
+    manifest: z.record(z.string(), z.unknown()),
     limit: z.number().int().min(1).max(100).default(10),
 });
 

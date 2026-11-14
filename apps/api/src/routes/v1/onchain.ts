@@ -37,7 +37,7 @@ function parseOrThrow<T>(schema: z.ZodType<T>, raw: unknown): T {
 }
 
 const jsonStrArray = z.array(z.string()).default([]);
-const jsonObjArray = z.array(z.record(z.unknown())).default([]);
+const jsonObjArray = z.array(z.record(z.string(), z.unknown())).default([]);
 
 const WalletBody = z.object({
     refId: z.string().min(1).max(255),

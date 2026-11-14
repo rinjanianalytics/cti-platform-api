@@ -23,7 +23,7 @@ const exampleManifest = (name: string) =>
 const CreateBody = z.object({
     source: z.string().min(1).max(100),
     entity: z.string().min(1).max(50),
-    manifest: z.record(z.unknown()),
+    manifest: z.record(z.string(), z.unknown()),
 });
 
 const ListQuery = z.object({

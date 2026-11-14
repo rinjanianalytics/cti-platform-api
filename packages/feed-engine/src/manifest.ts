@@ -228,11 +228,11 @@ export const FeedManifest = z.object({
   source: z.object({
     url: z.string().url(),
     method: z.enum(["GET", "POST"]).default("GET"),
-    headers: z.record(z.string()).default({}),
+    headers: z.record(z.string(), z.string()).default({}),
     // Optional request body for POST (raw string sent verbatim, or an object
     // serialised to JSON with Content-Type auto-set if not already supplied).
     // Needed for APIs like ThreatFox that take a JSON query payload.
-    body: z.union([z.string(), z.record(z.unknown())]).optional(),
+    body: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
     auth: z
       .object({
         type: z.enum(["none", "bearer", "apiKeyHeader"]).default("none"),
@@ -259,6 +259,6 @@ export const FeedManifest = z.object({
     text: z.object({ commentPrefix: z.string().default("") }).optional(),
   }),
   // canonicalField -> how to build it
-  mapping: z.record(FieldMapping),
+  mapping: z.record(z.string(), FieldMapping),
 });
 export type FeedManifest = z.infer<typeof FeedManifest>;

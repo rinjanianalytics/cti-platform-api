@@ -127,7 +127,7 @@ By [RinjaniAnalytics](https://rinjanianalytics.com) — paired with the [cti-pla
                             └──────────────────────┘
 ```
 
-Workers used to run as a separate `apps/worker` process; they're now folded into the API process (single `pnpm dev` runtime) with a Redis advisory bootlock so concurrent api+gateway processes don't double-schedule. `apps/worker` is kept as a build target for the `dev:standalone` daemon + one-off `sync:*` CLIs.
+Workers used to run as a separate `apps/worker` process; they're now folded into the API process (single `pnpm dev` runtime) with a Redis advisory bootlock so concurrent api+gateway processes don't double-schedule. `apps/worker` holds the feed-sync modules and the one-off `sync:*` CLIs. It has no process of its own.
 
 ---
 
@@ -188,7 +188,7 @@ cti-platform-api/
 │   │       ├── queues/      # BullMQ workers + scheduler + FlowProducer wiring
 │   │       └── services/    # Feed sync, enrichment, federation, neo4j, OTel
 │   ├── gateway/             # GraphQL Mesh stitched-API gateway (port 4000)
-│   ├── worker/              # CLI helpers + emergency standalone daemon
+│   ├── worker/              # Feed-sync modules + one-off CLI helpers (no worker process)
 │   └── dashboard-static/    # Tiny static landing page (real UI lives in v304-dashboard)
 ├── packages/
 │   ├── core/                # Shared services & types
@@ -262,13 +262,13 @@ pnpm --filter @rinjani/worker sync:alienvault
 ### Daemon Mode
 
 ```bash
-# Workers + scheduler + feed-sync daemon now run inside the API process.
+# Workers, the scheduler and feed sync all run inside the API process.
 # `pnpm dev` at the repo root starts everything as a single Node runtime.
 pnpm dev
-
-# Legacy standalone feed-only daemon (kept for emergency use, no BullMQ):
-pnpm --filter @rinjani/worker dev:standalone
 ```
+
+There is no separate worker process and no standalone daemon. The BullMQ
+scheduler inside the API is the only thing that dispatches feed syncs.
 
 ---
 
@@ -283,7 +283,7 @@ prometheus, etc.).
 | Profile | Adds | Use when |
 |---|---|---|
 | _(default)_ | postgres, pgbouncer, redis-cache, redis-queue, opensearch, neo4j | normal `pnpm dev` loop on the host |
-| `apps` | `v3-api`, `v3-worker` | running the API & worker as containers _instead_ of `pnpm dev` |
+| `apps` | `v3-api` | running the API as a container _instead_ of `pnpm dev`. Workers and the scheduler run inside it. |
 | `dashboard` | `v3-dashboard` (Next.js) | dashboard in docker instead of `pnpm dev` in the v304 repo |
 | `platform` | `v3-keycloak`, `v3-vault` | testing SSO / vault-backed secrets; both have env-var fallbacks |
 | `gateway` | `v3-traefik` | prod-style routing in front of the API |
@@ -293,7 +293,7 @@ prometheus, etc.).
 # Just the data plane (the common case)
 docker compose up -d
 
-# Run API + worker in containers instead of `pnpm dev`
+# Run the API in a container instead of `pnpm dev` (workers run inside it)
 docker compose --profile apps up -d
 
 # Spin up the observability stack
@@ -449,7 +449,7 @@ See `apps/worker/plugins/example-rss-feed/` for reference.
 - [Architecture](docs/ARCHITECTURE.md)
 - [Feed Connector Engine](docs/feed-engine.md) — declarative manifests, the `feeds_config`/`feed_manifest` split, LLM draft-mapper
 - [Roadmap](ROADMAP.md)
-- [API Documentation](http://localhost:3001/docs) (when running)
+- [API Documentation](http://localhost:3001/api-docs) (when running)
 - [GraphQL Playground](http://localhost:3001/graphql)
 
 ---

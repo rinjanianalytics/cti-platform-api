@@ -82,10 +82,15 @@ RUN pnpm --filter @rinjani/workbench-core build
 # Create plugins directory for worker
 RUN mkdir -p /app/plugins && chown nodejs:nodejs /app/plugins
 
+# Writable cache for the local embedding model (about 23 MB, downloaded on
+# first use). Mount a volume here to keep it across container recreation.
+RUN mkdir -p /app/.cache/transformers && chown -R nodejs:nodejs /app/.cache
+
 # Environment
 ENV NODE_ENV=production
 ENV PORT=3001
 ENV PLUGINS_DIR=/app/plugins
+ENV EMBEDDING_CACHE_DIR=/app/.cache/transformers
 ENV NODE_PATH=/app/apps/api/node_modules
 
 # Switch to non-root user

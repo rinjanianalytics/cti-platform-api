@@ -15,6 +15,12 @@ _(Add entries here as work lands on `master`. Cut a new dated section when taggi
   1 to 2, OpenTelemetry SDK 0.217 to 0.301. See
   [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
 
+### Fixed
+- **Embedding model cache**: the API runs as a non-root user and could
+  not write the model cache, so it downloaded the model on every start.
+  The image now sets `EMBEDDING_CACHE_DIR` to a writable folder, and
+  Compose keeps it in the `v3_model_cache` volume.
+
 ### Changed
 - **Node 22**: the Docker image, CI and the `engines` floor move from
   Node 20 (past its end of life) to Node 22.
